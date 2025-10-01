@@ -9,9 +9,33 @@ import (
 	_ "github.com/mattn/go-sqlite3" // Import the SQLite driver
 )
 
+type WishlistServer struct {
+	db * sql.DB
+}
 
-func helloHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "Hello, world!")
+// ServeHTTP implements the http.Handler interface
+func (h *WishlistServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Query data
+	rows, err := h.db.Query("SELECT id, name FROM users")
+	if err != nil {
+		log.Fatalf("Error querying data: %v", err)
+	}
+	defer rows.Close()
+	
+	fmt.Fprintf(w, "Users in the database:")
+	for rows.Next() {
+		var id int
+		var name string
+		err = rows.Scan(&id, &name)
+		if err != nil {
+			log.Fatalf("Error scanning row: %v", err)
+		}
+		fmt.Fprintf(w, "ID: %d, Name: %s\n", id, name)
+	}
+	err = rows.Err()
+	if err != nil {
+		log.Fatalf("Error iterating rows: %v", err)
+	}	
 }
 
 func main() {
@@ -48,30 +72,13 @@ func main() {
 	}
 	log.Println("Inserted Eric.")
 
-	// Query data
-	rows, err := db.Query("SELECT id, name FROM users")
-	if err != nil {
-		log.Fatalf("Error querying data: %v", err)
-	}
-	defer rows.Close()
+	fmt.Printf("The type of db is: %T\n", db)
 	
-	log.Println("Users in the database:")
-	for rows.Next() {
-		var id int
-		var name string
-		err = rows.Scan(&id, &name)
-		if err != nil {
-			log.Fatalf("Error scanning row: %v", err)
-		}
-		log.Printf("ID: %d, Name: %s\n", id, name)
+	handler := &WishlistServer{
+		db: db,
 	}
-	err = rows.Err()
-	if err != nil {
-		log.Fatalf("Error iterating rows: %v", err)
-	}
-	
-    http.HandleFunc("/", helloHandler)
 
-    //fmt.Println("Starting server on port 8080...")
-    //log.Fatal(http.ListenAndServe(":8080", nil))
+	http.Handle("/", handler)
+    fmt.Println("Starting server on port 8080...")
+    log.Fatal(http.ListenAndServe(":8080", nil))
 }
