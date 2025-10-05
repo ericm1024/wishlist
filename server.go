@@ -15,6 +15,11 @@ type WishlistServer struct {
 
 // ServeHTTP implements the http.Handler interface
 func (h *WishlistServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	log.Println("ServeHTTP!")
+
+	// XXX: remove me later
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	
 	// Query data
 	rows, err := h.db.Query("SELECT id, name FROM users")
 	if err != nil {
@@ -78,7 +83,7 @@ func main() {
 		db: db,
 	}
 
-	http.Handle("/", handler)
+	http.Handle("/api/users", handler)
     fmt.Println("Starting server on port 8080...")
     log.Fatal(http.ListenAndServe(":8080", nil))
 }
