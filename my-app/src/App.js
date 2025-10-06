@@ -45,6 +45,44 @@ function MyButton({count, onClick}) {
   );
 }
 
+function Login() {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  function handleUsername(event) {
+    setUsername(event.target.value);
+  };
+
+  function handlePassword(event) {
+    setPassword(event.target.value);
+  };
+
+  function doLogin() {
+    console.log("username: ", username, ", password: ", password)
+  }
+
+    return (
+            <div>
+            <h1> Login </h1>
+            Username <br/>
+            <input
+              type="text"
+              name="username"
+              onChange={handleUsername}
+            /> <br/>
+            Password <br/>
+            <input
+              type="password"
+              name="user_password"
+              onChange={handlePassword}              
+            /> <br/>
+            <button onClick={doLogin}>
+              Submit
+            </button>            
+            </div>
+  );
+}
+
 export default function MyApp() {
   const [count, setCount] = useState(0);
     
@@ -59,6 +97,7 @@ export default function MyApp() {
       <MyButton count={count} onClick={handleClick} />      
           <MyButton count={count} onClick={handleClick} />
           <MyComponent />
+          <Login />          
     </div>
   );
 }

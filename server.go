@@ -1,55 +1,68 @@
 package main
 
 import (
+    "context"
+	"database/sql"	
     "fmt"
+    "io"	
     "log"
+    "net"					
     "net/http"
-	"database/sql"
+    "os"			
+    "os/signal"
+    "sync"
+    "time"				
 
 	_ "github.com/mattn/go-sqlite3" // Import the SQLite driver
 )
 
-type WishlistServer struct {
-	db * sql.DB
+type Config struct {
+	DbPath string
+	Host string
+	Port string
 }
 
 // ServeHTTP implements the http.Handler interface
-func (h *WishlistServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	log.Println("ServeHTTP!")
+func handeUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 
-	// XXX: remove me later
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	return func(w http.ResponseWriter, r *http.Request) {
+		logger.Println("ServeHTTP!")
+
+		// XXX: remove me later
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 	
-	// Query data
-	rows, err := h.db.Query("SELECT id, name FROM users")
-	if err != nil {
-		log.Fatalf("Error querying data: %v", err)
-	}
-	defer rows.Close()
-	
-	fmt.Fprintf(w, "Users in the database:")
-	for rows.Next() {
-		var id int
-		var name string
-		err = rows.Scan(&id, &name)
+		// Query data
+		rows, err := db.Query("SELECT id, name FROM users")
 		if err != nil {
-			log.Fatalf("Error scanning row: %v", err)
+			logger.Fatalf("Error querying data: %v", err)
 		}
-		fmt.Fprintf(w, "ID: %d, Name: %s\n", id, name)
+		defer rows.Close()
+		
+		fmt.Fprintf(w, "Users in the database:")
+		for rows.Next() {
+			var id int
+			var name string
+			err = rows.Scan(&id, &name)
+			if err != nil {
+				logger.Fatalf("Error scanning row: %v", err)
+			}
+			fmt.Fprintf(w, "ID: %d, Name: %s\n", id, name)
+		}
+		err = rows.Err()
+		if err != nil {
+			logger.Fatalf("Error iterating rows: %v", err)
+		}
 	}
-	err = rows.Err()
-	if err != nil {
-		log.Fatalf("Error iterating rows: %v", err)
-	}	
 }
 
-func main() {
+func initDb(logger *log.Logger, config *Config) *sql.DB {
 	// Open (or create) the SQLite database file
-	db, err := sql.Open("sqlite3", "./example.db")
+	db, err := sql.Open("sqlite3", config.DbPath)
 	if err != nil {
-		log.Fatalf("Error opening database: %v", err)
+		logger.Fatalf("Error opening database: %v", err)
 	}
-	defer db.Close() // Ensure the database connection is closed when main exits
+	// TODO: when to do this
+	//defer db.Close() // Ensure the database connection is closed when main exits
 
 	// Create users table
 	sqlStmt := `
@@ -60,30 +73,96 @@ func main() {
 	`
 	_, err = db.Exec(sqlStmt)
 	if err != nil {
-		log.Fatalf("Error creating table: %v", err)
+		logger.Fatalf("Error creating table: %v", err)
 	}
-	log.Println("Table 'users' created or already exists.")	
+	logger.Println("Table 'users' created or already exists.")	
 
 	// Insert data
+	/*
 	stmt, err := db.Prepare("INSERT INTO users(name) VALUES(?)")
 	if err != nil {
-		log.Fatalf("Error preparing insert statement: %v", err)
+		logger.Fatalf("Error preparing insert statement: %v", err)
 	}
 	defer stmt.Close()
 
 	_, err = stmt.Exec("Eric")
 	if err != nil {
-		log.Fatalf("Error inserting data for Eric: %v", err)
+		logger.Fatalf("Error inserting data for Eric: %v", err)
 	}
-	log.Println("Inserted Eric.")
+	logger.Println("Inserted Eric.")
+*/
+	return db
+}
 
-	fmt.Printf("The type of db is: %T\n", db)
+func addRoutes(
+	mux                 *http.ServeMux,
+	logger              *log.Logger,
+	config              *Config,
+	db                  *sql.DB,
+) {
+	mux.Handle("/api/users", handeUsers(logger, db))
+}
+
+func NewServer(
+	logger *log.Logger,
+	config *Config,
+	db * sql.DB,
+) http.Handler {
+	mux := http.NewServeMux()
+	addRoutes(
+		mux,
+		logger,
+		config,
+		db,
+	)
+	return mux
+}
+
+func run(ctx context.Context, w io.Writer, args []string) error {
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
+	defer cancel()
+
+	logger := log.Default()
+
+	config := &Config{
+		DbPath: "./example.db",
+		Host: "localhost",
+		Port: "8080",
+	}
+
+	db := initDb(logger, config)
 	
-	handler := &WishlistServer{
-		db: db,
+	srv := NewServer(logger, config, db)
+	httpServer := &http.Server{
+		Addr:    net.JoinHostPort(config.Host, config.Port),
+		Handler: srv,
 	}
+	go func() {
+		logger.Printf("listening on %s\n", httpServer.Addr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Fprintf(os.Stderr, "error listening and serving: %s\n", err)
+		}
+	}()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		shutdownCtx := context.Background()
+		shutdownCtx, cancel := context.WithTimeout(shutdownCtx, 10 * time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "error shutting down http server: %s\n", err)
+		}
+	}()
+	wg.Wait()
+	return nil
+}
 
-	http.Handle("/api/users", handler)
-    fmt.Println("Starting server on port 8080...")
-    log.Fatal(http.ListenAndServe(":8080", nil))
+func main() {
+	ctx := context.Background()
+	if err := run(ctx, os.Stdout, os.Args); err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		os.Exit(1)
+	}
 }
