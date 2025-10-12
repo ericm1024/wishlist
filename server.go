@@ -2,18 +2,21 @@ package main
 
 import (
     "context"
-	"database/sql"	
+	"database/sql"
+	"encoding/json"	
     "fmt"
-    "io"	
+    "io"
     "log"
     "net"					
     "net/http"
     "os"			
     "os/signal"
     "sync"
+    "sync/atomic"	
     "time"				
 
 	_ "github.com/mattn/go-sqlite3" // Import the SQLite driver
+	"github.com/urfave/negroni"
 )
 
 type Config struct {
@@ -26,11 +29,12 @@ type Config struct {
 func handeUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		logger.Println("ServeHTTP!")
 
-		// XXX: remove me later
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-	
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		
 		// Query data
 		rows, err := db.Query("SELECT id, name FROM users")
 		if err != nil {
@@ -52,6 +56,58 @@ func handeUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 		if err != nil {
 			logger.Fatalf("Error iterating rows: %v", err)
 		}
+	}
+}
+
+func handleLogin(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+
+	// The struct that represents the expected JSON body.
+	type LoginRequest struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	type LoginResponse struct {
+		Answer string `json:"answer"`
+	}
+	
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 1. Enforce the request method (e.g., POST).
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// 2. Enforce the Content-Type header.
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "Unsupported Media Type", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		// 3. Decode the request body into a Go struct.
+		var reqBody LoginRequest
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&reqBody); err != nil {
+			http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Make sure the request body stream is closed.
+		defer r.Body.Close()
+	
+
+		// Set the Content-Type header to indicate JSON
+		w.Header().Set("Content-Type", "application/json")
+		
+		// Create a new JSON encoder that writes directly to the http.ResponseWriter
+		encoder := json.NewEncoder(w)
+
+		// Encode the data and write it to the response
+		response := LoginResponse{Answer: "login poggers"}
+		if err := encoder.Encode(response); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}		
 	}
 }
 
@@ -101,6 +157,23 @@ func addRoutes(
 	db                  *sql.DB,
 ) {
 	mux.Handle("/api/users", handeUsers(logger, db))
+	mux.Handle("/api/login", handleLogin(logger, db))
+}
+
+var requestIdCounter atomic.Uint64
+
+func loggingMiddleware(logger *log.Logger, handler http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := requestIdCounter.Add(1)
+		
+		logger.Printf("%d %s %s %s START", id, r.RemoteAddr, r.Method, r.URL.Path)
+		lrw := negroni.NewResponseWriter(w)
+		handler.ServeHTTP(lrw, r)
+
+		statusCode := lrw.Status()
+		logger.Printf("%d %s %s %s FINISH %d %s", id, r.RemoteAddr, r.Method, r.URL.Path,
+			statusCode, http.StatusText(statusCode))
+	}
 }
 
 func NewServer(
@@ -115,7 +188,8 @@ func NewServer(
 		config,
 		db,
 	)
-	return mux
+	handler := loggingMiddleware(logger, mux)
+	return handler
 }
 
 func run(ctx context.Context, w io.Writer, args []string) error {

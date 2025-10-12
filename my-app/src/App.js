@@ -9,7 +9,7 @@ function MyComponent() {
   useEffect(() => {
       const fetchData = async () => {
           try {
-              const response = await fetch('http://localhost:8080/api/users'); // Replace with your API endpoint
+              const response = await fetch('/api/users'); // Replace with your API endpoint
               if (!response.ok) {
                   throw new Error(`HTTP error! status: ${response.status}`);
               }
@@ -48,6 +48,7 @@ function MyButton({count, onClick}) {
 function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [loginResponse, setLoginResponse] = useState('');  
 
   function handleUsername(event) {
     setUsername(event.target.value);
@@ -57,7 +58,29 @@ function Login() {
     setPassword(event.target.value);
   };
 
-  function doLogin() {
+  async function doLogin() {
+        try {
+          const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              "username": username,
+              "password": password
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          setLoginResponse('Data sent successfully: ' + JSON.stringify(data));
+        } catch (error) {
+          setLoginResponse('Error sending data: ' + error.message);
+        }
+
     console.log("username: ", username, ", password: ", password)
   }
 
@@ -78,7 +101,8 @@ function Login() {
             /> <br/>
             <button onClick={doLogin}>
               Submit
-            </button>            
+            </button>
+            {loginResponse && <p>{loginResponse}</p>}
             </div>
   );
 }

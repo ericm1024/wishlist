@@ -2,4 +2,7 @@ module server.go
 
 go 1.25.1
 
-require github.com/mattn/go-sqlite3 v1.14.32
+require (
+	github.com/mattn/go-sqlite3 v1.14.32
+	github.com/urfave/negroni v1.0.0
+)
