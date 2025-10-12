@@ -107,6 +107,101 @@ function Login() {
   );
 }
 
+function Signup() {
+    const [formState, setFormState] = useState({
+        first: '',
+        last: '',
+        email: '',
+        password: ''
+    });
+  const [signupResponse, setSignupResponse] = useState('');  
+
+  function handleFirstName(event) {
+      setFormState(formState => ({
+          ...formState,
+          first: event.target.value
+      }))
+  };
+
+  function handleLastName(event) {
+      setFormState(formState => ({
+          ...formState,
+          last: event.target.value
+      }))
+  };
+
+  function handleEmail(event) {
+      setFormState(formState => ({
+          ...formState,
+          email: event.target.value
+      }))
+  };
+
+  function handlePassword(event) {
+      setFormState(formState => ({
+          ...formState,
+          password: event.target.value
+      }))
+  };
+
+  async function doSignup() {
+        try {
+          const response = await fetch('/api/signup', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+              body: JSON.stringify(formState)
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          setSignupResponse('Data sent successfully: ' + JSON.stringify(data));
+        } catch (error) {
+          setSignupResponse('Error sending data: ' + error.message);
+        }
+
+      console.log("formState", formState)
+  }
+
+    return (
+            <div>
+            <h1> Signup </h1>
+            First Name <br/>
+            <input
+              type="text"
+              name="firstname"
+              onChange={handleFirstName}
+            /> <br/>
+            Last Name <br/>
+            <input
+              type="text"
+              name="lastname"
+              onChange={handleLastName}
+            /> <br/>
+            Email <br/>
+            <input
+              type="text"
+              name="email"
+              onChange={handleEmail}
+            /> <br/>            
+            Password <br/>
+            <input
+              type="password"
+              name="user_password"
+              onChange={handlePassword}              
+            /> <br/>
+            <button onClick={doSignup}>
+              Signup
+            </button>
+            {signupResponse && <p>{signupResponse}</p>}
+            </div>
+  );
+}
+
 export default function MyApp() {
   const [count, setCount] = useState(0);
     
@@ -121,7 +216,8 @@ export default function MyApp() {
       <MyButton count={count} onClick={handleClick} />      
           <MyButton count={count} onClick={handleClick} />
           <MyComponent />
-          <Login />          
+          <Login />
+          <Signup />                    
     </div>
   );
 }

@@ -15,7 +15,9 @@ import (
     "sync/atomic"	
     "time"				
 
-	_ "github.com/mattn/go-sqlite3" // Import the SQLite driver
+	"github.com/matthewhartstonge/argon2"
+	
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/urfave/negroni"
 )
 
@@ -36,7 +38,7 @@ func handeUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 		}
 		
 		// Query data
-		rows, err := db.Query("SELECT id, name FROM users")
+		rows, err := db.Query("SELECT id, first_name FROM users")
 		if err != nil {
 			logger.Fatalf("Error querying data: %v", err)
 		}
@@ -111,6 +113,79 @@ func handleLogin(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+
+	// The struct that represents the expected JSON body.
+	type SignupRequest struct {
+		FirstName string `json:"first"`
+		LastName string `json:"last"`
+		Email string `json:"email"`
+		Password string `json:"password"`		
+	}
+
+	type SignupResponse struct {
+		Answer string `json:"answer"`
+	}
+	
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 1. Enforce the request method (e.g., POST).
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// 2. Enforce the Content-Type header.
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "Unsupported Media Type", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		// 3. Decode the request body into a Go struct.
+		var reqBody SignupRequest
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&reqBody); err != nil {
+			http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Make sure the request body stream is closed.
+		defer r.Body.Close()	
+
+		argon := argon2.MemoryConstrainedDefaults()
+		encoded, err := argon.HashEncoded([]byte(reqBody.Password))
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error hashing password: %v", err), http.StatusInternalServerError)
+		}
+
+		stmt, err := db.Prepare("INSERT INTO users(first_name, last_name, email, password_hash) VALUES(?, ?, ?, ?)")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error creating prepared statement: %v", err), http.StatusInternalServerError)
+			return 
+		}
+		defer stmt.Close()
+		
+		_, err = stmt.Exec(reqBody.FirstName, reqBody.LastName, reqBody.Email, string(encoded))
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error adding user: %v", err), http.StatusInternalServerError)
+			return
+		}
+		logger.Printf("Added user '%s %s' (%s)", reqBody.FirstName, reqBody.LastName, reqBody.Email)
+		
+		// Set the Content-Type header to indicate JSON
+		w.Header().Set("Content-Type", "application/json")
+		
+		// Create a new JSON encoder that writes directly to the http.ResponseWriter
+		encoder := json.NewEncoder(w)
+
+		// Encode the data and write it to the response
+		response := SignupResponse{Answer: "signup poggers"}
+		if err := encoder.Encode(response); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}		
+	}
+}
+
 func initDb(logger *log.Logger, config *Config) *sql.DB {
 	// Open (or create) the SQLite database file
 	db, err := sql.Open("sqlite3", config.DbPath)
@@ -124,7 +199,11 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	sqlStmt := `
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL
+		first_name TEXT NOT NULL,
+		last_name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        registration_date DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	`
 	_, err = db.Exec(sqlStmt)
@@ -158,6 +237,7 @@ func addRoutes(
 ) {
 	mux.Handle("/api/users", handeUsers(logger, db))
 	mux.Handle("/api/login", handleLogin(logger, db))
+	mux.Handle("/api/signup", handleSignup(logger, db))	
 }
 
 var requestIdCounter atomic.Uint64
