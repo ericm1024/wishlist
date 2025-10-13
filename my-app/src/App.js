@@ -46,12 +46,12 @@ function MyButton({count, onClick}) {
 }
 
 function Login() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginResponse, setLoginResponse] = useState('');  
 
-  function handleUsername(event) {
-    setUsername(event.target.value);
+  function handleEmail(event) {
+    setEmail(event.target.value);
   };
 
   function handlePassword(event) {
@@ -66,7 +66,7 @@ function Login() {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              "username": username,
+              "email": email,
               "password": password
             })
           });
@@ -75,23 +75,23 @@ function Login() {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
 
-          const data = await response.json();
-          setLoginResponse('Data sent successfully: ' + JSON.stringify(data));
+          await response
+          setLoginResponse('Data sent successfully');
         } catch (error) {
           setLoginResponse('Error sending data: ' + error.message);
         }
 
-    console.log("username: ", username, ", password: ", password)
+    console.log("email: ", email, ", password: ", password)
   }
 
     return (
             <div>
             <h1> Login </h1>
-            Username <br/>
+            Email <br/>
             <input
               type="text"
-              name="username"
-              onChange={handleUsername}
+              name="email"
+              onChange={handleEmail}
             /> <br/>
             Password <br/>
             <input
@@ -158,8 +158,8 @@ function Signup() {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
 
-          const data = await response.json();
-          setSignupResponse('Data sent successfully: ' + JSON.stringify(data));
+          await response
+          setSignupResponse('Data sent successfully');
         } catch (error) {
           setSignupResponse('Error sending data: ' + error.message);
         }
