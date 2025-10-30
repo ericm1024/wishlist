@@ -1,223 +1,384 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 
-function MyComponent() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+function WishlistList({setIsSignedIn}) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     
-  useEffect(() => {
-      const fetchData = async () => {
-          try {
-              const response = await fetch('/api/users'); // Replace with your API endpoint
-              if (!response.ok) {
-                  throw new Error(`HTTP error! status: ${response.status}`);
-              }
-              setData(await response.text());
-          } catch (error) {
-              setError(error);
-          } finally {
-              setLoading(false);
-          }
-      };
-      
-      fetchData();
-  }, []); // Empty dependency array ensures this runs only once on mount
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const response = await fetch('/api/wishlist', {
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        // we tried to fetch the wishlist but we're not signed in. Back out
+                        setIsSignedIn(false)
+                        return
+                    }
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                setData(await response.json());
+            } catch (error) {
+                setError(error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        
+        fetchData();
+    }, [setIsSignedIn]);
 
-  if (loading) return <p>Loading data...</p>;
-  if (error) return <p>Error: {error.message}</p>;
+    if (loading) return <p>Loading data...</p>;
+    if (error) return <p>Error: {error.message}</p>;
+
+    // Extract column headers from the keys of the first object
+    const columns = Object.keys(data["headers"]);
     
-  return (
-    <div>
-      <h1>Fetched Data:</h1>
-      {/* Render your data here */}
-          <pre>{data}</pre>
-    </div>
-  );
+    return (
+        <div>
+            <h1>Wishlist</h1>
+            <table>
+                <thead>
+                    <tr>
+                        {columns.map((column, index) => (
+                            <th key={index}>{column}</th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {data["entries"] === null ? null : data["entries"].map((row, rowIndex) => (
+                        <tr key={rowIndex}>
+                            {columns.map((column, colIndex) => (
+                                <td key={colIndex}>{row[column]}</td>
+                            ))}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
 }
 
-function MyButton({count, onClick}) {
+function WishlistAdder() {
+    const [formState, setFormState] = useState({
+        description: '',
+        source: '',
+        cost: '',
+        owner_notes: ''
+    });
+    const [postResponse, setPostResponse] = useState('');      
 
-  return (
-    <button onClick={onClick}>
-          Clicked {count} times
-    </button>
-  );
-}
+    function handleDescription(event) {
+        setFormState(formState => ({
+            ...formState,
+            description: event.target.value
+        }))
+    };
 
-function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loginResponse, setLoginResponse] = useState('');  
+    function handleSource(event) {
+        setFormState(formState => ({
+            ...formState,
+            source: event.target.value
+        }))
+    };
 
-  function handleEmail(event) {
-    setEmail(event.target.value);
-  };
+    function handleCost(event) {
+        setFormState(formState => ({
+            ...formState,
+            cost: event.target.value
+        }))
+    };
 
-  function handlePassword(event) {
-    setPassword(event.target.value);
-  };
+    function handleOwnerNotes(event) {
+        setFormState(formState => ({
+            ...formState,
+            owner_notes: event.target.value
+        }))
+    };
 
-  async function doLogin() {
+    async function doPost() {
         try {
-          const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              "email": email,
-              "password": password
-            })
-          });
+            const response = await fetch('/api/wishlist', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formState)
+            });
 
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
 
-          await response
-          setLoginResponse('Data sent successfully');
+            const data = await response.json()
+            setPostResponse('Data sent successfully' + JSON.stringify(data));
         } catch (error) {
-          setLoginResponse('Error sending data: ' + error.message);
+            setPostResponse('Error sending data: ' + error.message);
         }
 
-    console.log("email: ", email, ", password: ", password)
-  }
+        console.log("formState", formState)
+    }
+    
+    return (
+        <div>
+            <h1> Add to Wishlist </h1>
+            Description <br/>
+            <input
+                type="text"
+                name="description"
+                onChange={handleDescription}
+            /> <br/>
+            Source <br/>
+            <input
+                type="text"
+                name="source"
+                onChange={handleSource}
+            /> <br/>
+            Cost <br/>
+            <input
+                type="text"
+                name="cost"
+                onChange={handleCost}
+            /> <br/>            
+            Notes <br/>
+            <input
+                type="text"
+                name="notes"
+                onChange={handleOwnerNotes}              
+            /> <br/>
+            <button onClick={doPost}>
+                Add Item
+            </button>
+            {postResponse && <p>{postResponse}</p>}
+        </div>
+    );
+}
+
+
+function Login({setShowLogin, setIsSignedIn}) {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [loginError, setLoginError] = useState('');
+
+    function handleEmail(event) {
+        setEmail(event.target.value);
+    };
+
+    function handlePassword(event) {
+        setPassword(event.target.value);
+    };
+
+    async function doLogin() {
+        try {
+            const response = await fetch('/api/session', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    "email": email,
+                    "password": password
+                })
+            });
+            
+            const data = await response.text()
+
+            if (!response.ok) {
+                setLoginError(data)
+            } else {
+                setIsSignedIn(true)
+            }
+        } catch (error) {
+            loginError(error.message)
+            console.log('Error sending data: ' + error.message);
+        }
+    }
 
     return (
-            <div>
+        <div>
             <h1> Login </h1>
             Email <br/>
             <input
-              type="text"
-              name="email"
-              onChange={handleEmail}
+                type="email"
+                name="email"
+                onChange={handleEmail}
             /> <br/>
             Password <br/>
             <input
-              type="password"
-              name="user_password"
-              onChange={handlePassword}              
+                type="password"
+                name="user_password"
+                onChange={handlePassword}              
             /> <br/>
             <button onClick={doLogin}>
-              Submit
+                Submit
             </button>
-            {loginResponse && <p>{loginResponse}</p>}
-            </div>
-  );
+            {loginError && <p>{loginError}</p>}
+            <p> don't have an account? </p>
+            <button onClick={() => setShowLogin(false)}>
+                Signup
+            </button>            
+        </div>
+    );
 }
 
-function Signup() {
+function Signup({setShowLogin, setIsSignedIn}) {
     const [formState, setFormState] = useState({
         first: '',
         last: '',
         email: '',
         password: ''
     });
-  const [signupResponse, setSignupResponse] = useState('');  
+    const formRef = useRef(null);
 
-  function handleFirstName(event) {
-      setFormState(formState => ({
-          ...formState,
-          first: event.target.value
-      }))
-  };
+    function handleFirstName(event) {
+        setFormState(formState => ({
+            ...formState,
+            first: event.target.value
+        }))
+    };
 
-  function handleLastName(event) {
-      setFormState(formState => ({
-          ...formState,
-          last: event.target.value
-      }))
-  };
+    function handleLastName(event) {
+        setFormState(formState => ({
+            ...formState,
+            last: event.target.value
+        }))
+    };
 
-  function handleEmail(event) {
-      setFormState(formState => ({
-          ...formState,
-          email: event.target.value
-      }))
-  };
+    function handleEmail(event) {
+        setFormState(formState => ({
+            ...formState,
+            email: event.target.value
+        }))
+    };
 
-  function handlePassword(event) {
-      setFormState(formState => ({
-          ...formState,
-          password: event.target.value
-      }))
-  };
+    function handlePassword(event) {
+        setFormState(formState => ({
+            ...formState,
+            password: event.target.value
+        }))
+    };
 
-  async function doSignup() {
-        try {
-          const response = await fetch('/api/signup', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-              body: JSON.stringify(formState)
-          });
-
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-
-          await response
-          setSignupResponse('Data sent successfully');
-        } catch (error) {
-          setSignupResponse('Error sending data: ' + error.message);
+    async function handleSubmit(event) {
+        event.preventDefault();
+        if (!formRef.current.checkValidity()) {
+            return
         }
+        
+        try {
+            const response = await fetch('/api/signup', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formState)
+            });
 
-      console.log("formState", formState)
-  }
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            await response
+            setIsSignedIn(true)
+        } catch (error) {
+            console.log('Error sending data: ' + error.message);
+        }
+    }
 
     return (
-            <div>
+        <div>
             <h1> Signup </h1>
             First Name <br/>
-            <input
-              type="text"
-              name="firstname"
-              onChange={handleFirstName}
-            /> <br/>
-            Last Name <br/>
-            <input
-              type="text"
-              name="lastname"
-              onChange={handleLastName}
-            /> <br/>
-            Email <br/>
-            <input
-              type="text"
-              name="email"
-              onChange={handleEmail}
-            /> <br/>            
-            Password <br/>
-            <input
-              type="password"
-              name="user_password"
-              onChange={handlePassword}              
-            /> <br/>
-            <button onClick={doSignup}>
-              Signup
-            </button>
-            {signupResponse && <p>{signupResponse}</p>}
-            </div>
-  );
+            <form ref={formRef} onSubmit={handleSubmit}>
+                <input
+                    type="text"
+                    name="firstname"
+                    onChange={handleFirstName}
+                /> <br/>
+                Last Name <br/>
+                <input
+                    type="text"
+                    name="lastname"
+                    onChange={handleLastName}
+                /> <br/>
+                Email <br/>
+                <input
+                    type="email"
+                    name="email"
+                    required
+                    onChange={handleEmail}
+                /> <br/>            
+                Password <br/>
+                <input
+                    type="password"
+                    name="user_password"
+                    onChange={handlePassword}              
+                /> <br/>
+                <input type="submit" value="Signup" />             
+            </form>
+            <p> Already have an account? </p>              
+            <button onClick={() => setShowLogin(true)}>
+                Login                                 
+            </button>                                              
+        </div>
+    );
+}
+
+function LogoutButton({setIsSignedIn}) {
+    async function doLogout() {
+        try {
+            const response = await fetch('/api/session', {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            await response
+            setIsSignedIn(false)
+        } catch (error) {
+            console.log('error logging out' + error.message);
+        }
+    }
+
+    return (
+        <button onClick={doLogout}>
+            Logout
+        </button>
+    );
+}
+
+function LoginOrSignup({setIsSignedIn}) {
+    const [showLogin, setShowLogin] = useState(true);
+    return (
+        <div>
+            {showLogin ? <Login setShowLogin={setShowLogin} setIsSignedIn={setIsSignedIn}/>
+             : <Signup setShowLogin={setShowLogin} setIsSignedIn={setIsSignedIn}/>}
+        </div>
+    );
+}
+
+function Wishlist({setIsSignedIn}) {
+    return (
+        <div>
+            <WishlistList setIsSignedIn={setIsSignedIn}/>
+            <WishlistAdder />
+            <LogoutButton setIsSignedIn={setIsSignedIn}/>
+        </div>
+    );
 }
 
 export default function MyApp() {
-  const [count, setCount] = useState(0);
-    
-  function handleClick() {
-      setCount(count + 1)
-  }
-
-    
-  return (
-    <div>
-      <h1>Welcome to my app</h1>
-      <MyButton count={count} onClick={handleClick} />      
-          <MyButton count={count} onClick={handleClick} />
-          <MyComponent />
-          <Login />
-          <Signup />                    
-    </div>
-  );
+    const [isSignedIn, setIsSignedIn] = useState(true);
+                                      
+    return (
+        <div>
+            {isSignedIn ? <Wishlist setIsSignedIn={setIsSignedIn}/> : <LoginOrSignup setIsSignedIn={setIsSignedIn}/>}
+        </div>
+    );
 }

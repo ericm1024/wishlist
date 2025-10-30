@@ -6,6 +6,9 @@
 // * limit field sizes for all client-controlled fields
 // * remove expired sessions
 // * resend session cookies periodically
+// * top-level middleware to do 'defer r.Body.Close()' bullshit
+// * helper function for request decoding
+// * Content-Security-Policy ?
 
 package main
 
@@ -14,7 +17,8 @@ import (
     "crypto/rand"	
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"	
+	"encoding/json"
+	"errors"
     "fmt"
     "io"
     "log"
@@ -22,6 +26,7 @@ import (
     "net/http"
     "os"			
     "os/signal"
+    "strconv"	
     "sync"
     "sync/atomic"	
     "time"				
@@ -40,75 +45,48 @@ type Config struct {
 
 const sessionCookieKey = "wishlist_session_id"
 
-// ServeHTTP implements the http.Handler interface
-func handeUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
-
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		// Validate session
-		sessionCookie, err := r.Cookie(sessionCookieKey)
-		if err != nil {
-			if err == http.ErrNoCookie {
-				http.Error(w, "missing session cookie", http.StatusBadRequest)
-			} else {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-			}
-			return
-		}
-
-		binaryCookie, err := base64.URLEncoding.DecodeString(sessionCookie.Value)
-		if err != nil {
-			http.Error(w, "undecodable session cookie", http.StatusBadRequest)
-			return
-		}
-		
-		stmt, err := db.Prepare("SELECT expiry_time FROM sessions WHERE session_cookie = ?")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer stmt.Close()
-
-		var expiryTime time.Time
-		err = stmt.QueryRow(binaryCookie).Scan(&expiryTime)
-		if err != nil {
-			// XXX: differentiate no DB entry vs "something weird"
-			http.Error(w, "no cookie in db", http.StatusUnauthorized)
-			return
-		}
-
-		if expiryTime.Before(time.Now()) {
-			http.Error(w, "expired cookie", http.StatusUnauthorized)
-			return
-		}
-		
-		// Query data
-		rows, err := db.Query("SELECT id, first_name FROM users")
-		if err != nil {
-			logger.Fatalf("Error querying data: %v", err)
-		}
-		defer rows.Close()
-		
-		fmt.Fprintf(w, "Users in the database:")
-		for rows.Next() {
-			var id int
-			var name string
-			err = rows.Scan(&id, &name)
-			if err != nil {
-				logger.Fatalf("Error scanning row: %v", err)
-			}
-			fmt.Fprintf(w, "ID: %d, Name: %s\n", id, name)
-		}
-		err = rows.Err()
-		if err != nil {
-			logger.Fatalf("Error iterating rows: %v", err)
-		}
+func extractCookie(r *http.Request) []byte {
+	sessionCookie, err := r.Cookie(sessionCookieKey)
+	if err != nil {
+		return nil
 	}
+
+	binaryCookie, err := base64.URLEncoding.DecodeString(sessionCookie.Value)
+	if err != nil {
+		return nil
+	}
+	return binaryCookie
+}
+
+func authenticateUser(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) (error, uint64) {
+	cookie := extractCookie(r)
+	if cookie == nil {
+		http.Error(w, "missing session cookie", http.StatusUnauthorized)
+		return errors.New("missing session cookie"), 0
+	}
+
+	stmt, err := db.Prepare("SELECT expiry_time, id FROM sessions WHERE session_cookie = ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return err, 0
+	}
+	defer stmt.Close()
+
+	var expiryTime time.Time
+	var id int64
+	err = stmt.QueryRow(cookie).Scan(&expiryTime, &id)
+	if err != nil {
+		// XXX: differentiate no DB entry vs "something weird"
+		http.Error(w, "no cookie in db", http.StatusUnauthorized)
+		return err, 0
+	}
+
+	if expiryTime.Before(time.Now()) {
+		http.Error(w, "expired cookie", http.StatusUnauthorized)
+		return errors.New("cookie expired"), 0
+	}
+
+	return nil, uint64(id)
 }
 
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies
@@ -148,73 +126,102 @@ func createSession(logger *log.Logger, db *sql.DB, userId int64, userAgent strin
 	return nil
 }
 
-func handleLogin(logger *log.Logger, db *sql.DB) http.HandlerFunc {
-
+func handleSessionPost(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	// The struct that represents the expected JSON body.
 	type LoginRequest struct {
 		Email string `json:"email"`
 		Password string `json:"password"`
 	}
 
-	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. Enforce the request method (e.g., POST).
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	if r.Header.Get("Content-Type") != "application/json" {
+		http.Error(w, "", http.StatusUnsupportedMediaType)
+		return
+	}
+	
+	// 3. Decode the request body into a Go struct.
+	var reqBody LoginRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&reqBody); err != nil {
+		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+		return
+	}
 
-		// 2. Enforce the Content-Type header.
-		if r.Header.Get("Content-Type") != "application/json" {
-			http.Error(w, "Unsupported Media Type", http.StatusUnsupportedMediaType)
-			return
-		}
+	if reqBody.Email == "" || reqBody.Password == "" {
+		http.Error(w, "Bad Request: Missing fields", http.StatusBadRequest)
+		return
+	}
 
-		// 3. Decode the request body into a Go struct.
-		var reqBody LoginRequest
-		decoder := json.NewDecoder(r.Body)
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&reqBody); err != nil {
-			http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
-			return
-		}
+	// Make sure the request body stream is closed.
+	defer r.Body.Close()
 
-		if reqBody.Email == "" || reqBody.Password == "" {
-			http.Error(w, "Bad Request: Missing fields", http.StatusBadRequest)
-			return
-		}
+	stmt, err := db.Prepare("SELECT password_hash, id FROM users WHERE email = ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+	
+	var passwordHash string
+	var userID int64
+	err = stmt.QueryRow(reqBody.Email).Scan(&passwordHash, &userID)
+	if err != nil {
+		// differentiate between DB issue and unknown error?
+		http.Error(w, "invalid username or password", http.StatusUnauthorized)
+		return
+	}
 
-		// Make sure the request body stream is closed.
-		defer r.Body.Close()
+	// TODO: hash either way to prevent timing attacks to find valid emails?
+	
+	ok, err := argon2.VerifyEncoded([]byte(reqBody.Password), []byte(passwordHash))
+	if err != nil || !ok {
+		http.Error(w, "invalid username or password", http.StatusUnauthorized)
+		return
+	}		
 
-		stmt, err := db.Prepare("SELECT password_hash, id FROM users WHERE email = ?")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer stmt.Close()
-		
-		var passwordHash string
-		var userID int64
-		err = stmt.QueryRow(reqBody.Email).Scan(&passwordHash, &userID)
-		if err != nil {
-			// differentiate between DB issue and unknown error?
-			http.Error(w, "invalid username or password", http.StatusUnauthorized)
-			return
-		}
+	err = createSession(logger, db, userID, r.Header.Get("User-Agent"), w)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error creating session %v", err), http.StatusInternalServerError)
+		return
+	}
+}
 
-		// TODO: hash either way to prevent timing attacks to find valid emails?
-		
-		ok, err := argon2.VerifyEncoded([]byte(reqBody.Password), []byte(passwordHash))
-		if err != nil || !ok {
-			http.Error(w, "invalid username or password", http.StatusUnauthorized)
+func handleSessionDelete(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	cookie := extractCookie(r)
+	if cookie == nil {
+		return
+	}
+	
+	stmt, err := db.Prepare("DELETE FROM sessions WHERE session_cookie = ? RETURNING id ")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	var id int64
+	err = stmt.QueryRow(cookie).Scan(&id)
+	if err != nil && err != sql.ErrNoRows {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err != sql.ErrNoRows {
+		logger.Printf("deleting session for user %d", id)	
+	}
+}
+
+func handleSession(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {		
+		if r.Method == http.MethodPost {
+			handleSessionPost(logger, db, w, r)
+		} else if r.Method == http.MethodDelete {
+			handleSessionDelete(logger, db, w, r)
+		} else {
+			http.Error(w, "", http.StatusMethodNotAllowed)
 			return
 		}		
 
-		err = createSession(logger, db, userID, r.Header.Get("User-Agent"), w)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("error creating session %v", err), http.StatusInternalServerError)
-			return
-		}
 	}
 }
 
@@ -285,6 +292,201 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	type WishlistEntry struct {
+		Id uint64 `json:"id"`
+		Description string `json:"description"`
+		Source string `json:"source"`
+		Cost string `json:"cost"`
+		OwnerNotes *string `json:"owner_notes"`
+		BuyerNotes *string `json:"buyer_notes"`
+	}
+	
+	type WishlistGetResponse struct {
+		Headers WishlistEntry `json:"headers"`
+		Entries []WishlistEntry `json:"entries"`
+	}
+
+	var queryUser uint64
+	
+	peerUserStr := r.URL.Query().Get("peerUser")
+	if peerUserStr != "" {
+		peerUser, err := strconv.ParseUint(peerUserStr, 10, 64)
+		if err != nil {
+			http.Error(w, "missing or malformed peerUser parameter", http.StatusBadRequest)
+			return
+		}
+		queryUser = peerUser
+	} else {
+		queryUser = id
+	}
+		
+	// Make sure the request body stream is closed.
+	defer r.Body.Close()
+
+	stmt, err := db.Prepare("SELECT id,description,source,cost,owner_notes,buyer_notes FROM wishlist WHERE user_id = ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	rows, err := stmt.Query(queryUser)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var response WishlistGetResponse
+	for rows.Next() {
+		response.Entries = append(response.Entries, WishlistEntry{})
+		entry := &response.Entries[len(response.Entries)-1]
+		
+		err = rows.Scan(&entry.Id, &entry.Description, &entry.Source, &entry.Cost, &entry.OwnerNotes,
+			&entry.BuyerNotes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// requesting our own wishlist, we don't get to see the buyer notes
+		if queryUser == id {
+			entry.BuyerNotes = nil
+		}
+	}
+	err = rows.Err()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Encode the data and write it to the response
+	encoder := json.NewEncoder(w)
+	if err := encoder.Encode(response); err != nil {                  
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func handleWishlistPost(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	type WishlistEntry struct {
+		Description string `json:"description"`
+		Source string `json:"source"`
+		Cost string `json:"cost"`
+		OwnerNotes string `json:"owner_notes"`
+	}
+
+	type WishlistResponse struct {
+		Id uint64 `json:"id"`
+	}
+
+	var reqBody WishlistEntry
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&reqBody); err != nil {
+		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+		return
+	}
+		
+	// Make sure the request body stream is closed.
+	defer r.Body.Close()
+
+	stmt, err := db.Prepare("INSERT INTO wishlist(user_id, description, source, cost, owner_notes) VALUES(?, ?, ?, ?, ?)")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	result, err := stmt.Exec(id, reqBody.Description, reqBody.Source, reqBody.Cost, reqBody.OwnerNotes)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("error getting id: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := WishlistResponse{Id: uint64(lastID)}
+
+	// Encode the data and write it to the response
+	encoder := json.NewEncoder(w)
+	if err := encoder.Encode(response); err != nil {                  
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+	}	
+}
+
+func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	type DeleteRequest struct {
+		Id uint64 `json:"id"`
+	}
+
+	var reqBody DeleteRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&reqBody); err != nil {
+		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+		return
+	}
+
+	if reqBody.Id == 0 {
+		http.Error(w, "id must be non-zero", http.StatusBadRequest)
+		return
+	}
+		
+	// Make sure the request body stream is closed.
+	defer r.Body.Close()
+
+	logger.Printf("deleted wishlist row id %d", reqBody.Id)
+	
+	stmt, err := db.Prepare("DELETE FROM wishlist WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	result, err := stmt.Exec(reqBody.Id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil && rowsAffected == 0 {
+		http.Error(w, "non-existent row", http.StatusNotFound)
+		return
+	}
+}
+
+func handleWishlist(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err, id := authenticateUser(logger, db, w, r)
+		if err != nil {
+			return
+		}
+
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "", http.StatusUnsupportedMediaType)
+			return
+		}
+		
+		if r.Method == http.MethodGet {
+			handleWishlistGet(id, logger, db, w, r)
+		} else if r.Method == http.MethodPost {
+			handleWishlistPost(id, logger, db, w, r)
+		} else if r.Method == http.MethodDelete {
+			handleWishlistDelete(id, logger, db, w, r)
+		} else {
+			http.Error(w, "", http.StatusMethodNotAllowed)
+			return
+		}
+	}
+}
+
 func initDb(logger *log.Logger, config *Config) *sql.DB {
 	// Open (or create) the SQLite database file
 	db, err := sql.Open("sqlite3", config.DbPath)
@@ -328,6 +530,25 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 		logger.Fatalf("Error creating sessions table: %v", err)
 	}
 	logger.Println("Table 'sessions' created or already exists.")	
+
+	sqlStmt = `
+	CREATE TABLE IF NOT EXISTS wishlist (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        source TEXT NOT NULL,
+        cost TEXT NOT NULL,
+        owner_notes TEXT,
+        buyer_notes TEXT,
+        creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id)
+	);
+	`
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		logger.Fatalf("Error creating wishlist table: %v", err)
+	}
+	logger.Println("Table 'wishlist' created or already exists.")	
 	
 	return db
 }
@@ -338,9 +559,9 @@ func addRoutes(
 	config              *Config,
 	db                  *sql.DB,
 ) {
-	mux.Handle("/api/users", handeUsers(logger, db))
-	mux.Handle("/api/login", handleLogin(logger, db))
-	mux.Handle("/api/signup", handleSignup(logger, db))	
+	mux.Handle("/api/session", handleSession(logger, db))
+	mux.Handle("/api/signup", handleSignup(logger, db))
+	mux.Handle("/api/wishlist", handleWishlist(logger, db))		
 }
 
 var requestIdCounter atomic.Uint64
