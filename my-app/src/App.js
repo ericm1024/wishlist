@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-
-function WishlistList({setIsSignedIn}) {
+function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate, setWishlistUpToDate}) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -9,11 +8,15 @@ function WishlistList({setIsSignedIn}) {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const response = await fetch('/api/wishlist', {
+                var url = '/api/wishlist?' + new URLSearchParams({
+                        userId: displayedWishlistUser["id"]
+                    }).toString()
+                const response = await fetch(url, {
                     headers: {
                         'Content-Type': 'application/json',
                     },
                 });
+
                 if (!response.ok) {
                     if (response.status === 401) {
                         // we tried to fetch the wishlist but we're not signed in. Back out
@@ -23,6 +26,7 @@ function WishlistList({setIsSignedIn}) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 setData(await response.json());
+                setWishlistUpToDate(true)
             } catch (error) {
                 setError(error);
             } finally {
@@ -31,7 +35,7 @@ function WishlistList({setIsSignedIn}) {
         };
         
         fetchData();
-    }, [setIsSignedIn]);
+    }, [setIsSignedIn, displayedWishlistUser, wishlistUpToDate, setWishlistUpToDate]);
 
     if (loading) return <p>Loading data...</p>;
     if (error) return <p>Error: {error.message}</p>;
@@ -41,7 +45,7 @@ function WishlistList({setIsSignedIn}) {
     
     return (
         <div>
-            <h1>Wishlist</h1>
+            <h1>{displayedWishlistUser["first"]}'s Wishlist</h1>
             <table>
                 <thead>
                     <tr>
@@ -64,7 +68,7 @@ function WishlistList({setIsSignedIn}) {
     );
 }
 
-function WishlistAdder() {
+function WishlistAdder({setWishlistUpToDate}) {
     const [formState, setFormState] = useState({
         description: '',
         source: '',
@@ -117,6 +121,7 @@ function WishlistAdder() {
 
             const data = await response.json()
             setPostResponse('Data sent successfully' + JSON.stringify(data));
+            setWishlistUpToDate(false)
         } catch (error) {
             setPostResponse('Error sending data: ' + error.message);
         }
@@ -353,6 +358,60 @@ function LogoutButton({setIsSignedIn}) {
     );
 }
 
+function WishlistSelector({setDisplayedWishlistUser}) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);    
+    
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const response = await fetch('/api/users', {
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                setData(await response.json());
+            } catch (error) {
+                setError(error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        
+        fetchData();
+    }, []);
+
+    if (loading) return <p>Loading data...</p>;
+    if (error) return <p>Error: {error.message}</p>;
+
+    return (
+        <div>
+            <h1>Choose Wishlist Owner</h1>
+            <table>
+                <tbody>
+                    {data["users"] === null ? null : data["users"].map((row, rowIndex) => (
+                        <tr key={rowIndex}>
+                            <td onClick={() => setDisplayedWishlistUser({
+                                    id: row["id"],
+                                    first: row["first"],
+                                    last: row["last"],
+                                }
+                                )}
+                                style={{ cursor: 'pointer', color: 'blue' }}>
+                                {row["first"] + " " + row["last"]}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );    
+}
+
 function LoginOrSignup({setIsSignedIn}) {
     const [showLogin, setShowLogin] = useState(true);
     return (
@@ -364,10 +423,55 @@ function LoginOrSignup({setIsSignedIn}) {
 }
 
 function Wishlist({setIsSignedIn}) {
+    const [displayedWishlistUser, setDisplayedWishlistUser] = useState(null)
+    const [wishlistUpToDate, setWishlistUpToDate] = useState(true)
+    const [loggedInUserInfo, setLoggedInUserInfo] = useState({});
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);        
+
+    useEffect(() => {
+        const fetchSession = async () => {
+            try {
+                // NB: this could probably be cached locally? Maybe the browswer can cache it too, idk
+                const response = await fetch('/api/session', {
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        //setIsSignedIn(false)
+                        return
+                    }
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                setLoggedInUserInfo(await response.json());
+            } catch (error) {
+                setError(error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        
+        fetchSession();
+    }, [setLoggedInUserInfo]);
+
+    if (loading) return <p>Loading data...</p>;
+    if (error) return <p>Error: {error.message}</p>;
+
+    if (displayedWishlistUser === null) {
+        setDisplayedWishlistUser(loggedInUserInfo)
+    }
+    
     return (
         <div>
-            <WishlistList setIsSignedIn={setIsSignedIn}/>
-            <WishlistAdder />
+            <WishlistItems setIsSignedIn={setIsSignedIn}
+                           displayedWishlistUser={displayedWishlistUser}
+                           wishlistUpToDate={wishlistUpToDate}
+                           setWishlistUpToDate={setWishlistUpToDate}/>
+            {displayedWishlistUser === loggedInUserInfo["id"] ? <WishlistAdder setWishlistUpToDate={setWishlistUpToDate}/> : null}
+            <WishlistSelector setDisplayedWishlistUser={setDisplayedWishlistUser}/>
             <LogoutButton setIsSignedIn={setIsSignedIn}/>
         </div>
     );

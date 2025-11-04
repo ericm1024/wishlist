@@ -211,12 +211,47 @@ func handleSessionDelete(logger *log.Logger, db *sql.DB, w http.ResponseWriter, 
 	}
 }
 
+type User struct {
+	Id uint64 `json:"id"`
+	FirstName string `json:"first"`
+	LastName string `json:"last"`
+}
+
+func handleSessionGet(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	var user User
+	err, id := authenticateUser(logger, db, w, r)
+	if err != nil {
+		return
+	}
+	user.Id = id
+
+	stmt, err := db.Prepare("SELECT first_name,last_name FROM users WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	err = stmt.QueryRow(id).Scan(&user.FirstName, &user.LastName)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	encoder := json.NewEncoder(w)
+	if err := encoder.Encode(user); err != nil {    
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}	
+}
+
 func handleSession(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {		
 		if r.Method == http.MethodPost {
 			handleSessionPost(logger, db, w, r)
 		} else if r.Method == http.MethodDelete {
 			handleSessionDelete(logger, db, w, r)
+		} else if r.Method == http.MethodGet {
+			handleSessionGet(logger, db, w, r)
 		} else {
 			http.Error(w, "", http.StatusMethodNotAllowed)
 			return
@@ -307,18 +342,18 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 		Entries []WishlistEntry `json:"entries"`
 	}
 
-	var queryUser uint64
+	var queryUserId uint64
 	
-	peerUserStr := r.URL.Query().Get("peerUser")
-	if peerUserStr != "" {
-		peerUser, err := strconv.ParseUint(peerUserStr, 10, 64)
+	userStr := r.URL.Query().Get("userId")
+	if userStr != "" {
+		userId, err := strconv.ParseUint(userStr, 10, 64)
 		if err != nil {
-			http.Error(w, "missing or malformed peerUser parameter", http.StatusBadRequest)
+			http.Error(w, "missing or malformed user parameter", http.StatusBadRequest)
 			return
 		}
-		queryUser = peerUser
+		queryUserId = userId
 	} else {
-		queryUser = id
+		queryUserId = id
 	}
 		
 	// Make sure the request body stream is closed.
@@ -331,7 +366,7 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 	}
 	defer stmt.Close()
 
-	rows, err := stmt.Query(queryUser)
+	rows, err := stmt.Query(queryUserId)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -351,7 +386,7 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 		}
 
 		// requesting our own wishlist, we don't get to see the buyer notes
-		if queryUser == id {
+		if queryUserId == id {
 			entry.BuyerNotes = nil
 		}
 	}
@@ -487,6 +522,66 @@ func handleWishlist(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func handleUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err, _ := authenticateUser(logger, db, w, r)
+		if err != nil {
+			return
+		}
+
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "", http.StatusUnsupportedMediaType)
+			return
+		}
+		
+		if r.Method != http.MethodGet {
+			http.Error(w, "", http.StatusMethodNotAllowed)
+			return
+		}
+		
+		type UsersResponse struct {
+			Entries []User `json:"users"`
+		}
+		
+		stmt, err := db.Prepare("SELECT id,first_name,last_name FROM users")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
+		
+		rows, err := stmt.Query()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		
+		var response UsersResponse
+		for rows.Next() {
+			response.Entries = append(response.Entries, User{})
+			entry := &response.Entries[len(response.Entries)-1]
+
+			err = rows.Scan(&entry.Id, &entry.FirstName, &entry.LastName)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		err = rows.Err()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Encode the data and write it to the response
+		encoder := json.NewEncoder(w)
+		if err := encoder.Encode(response); err != nil {    
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
 func initDb(logger *log.Logger, config *Config) *sql.DB {
 	// Open (or create) the SQLite database file
 	db, err := sql.Open("sqlite3", config.DbPath)
@@ -561,7 +656,8 @@ func addRoutes(
 ) {
 	mux.Handle("/api/session", handleSession(logger, db))
 	mux.Handle("/api/signup", handleSignup(logger, db))
-	mux.Handle("/api/wishlist", handleWishlist(logger, db))		
+	mux.Handle("/api/wishlist", handleWishlist(logger, db))
+	mux.Handle("/api/users", handleUsers(logger, db))	
 }
 
 var requestIdCounter atomic.Uint64
