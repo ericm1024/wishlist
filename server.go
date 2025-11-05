@@ -26,7 +26,8 @@ import (
     "net/http"
     "os"			
     "os/signal"
-    "strconv"	
+    "strconv"
+	"strings"
     "sync"
     "sync/atomic"	
     "time"				
@@ -456,7 +457,7 @@ func handleWishlistPost(id uint64, logger *log.Logger, db *sql.DB, w http.Respon
 
 func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	type DeleteRequest struct {
-		Id uint64 `json:"id"`
+		Ids []uint64 `json:"ids"`
 	}
 
 	var reqBody DeleteRequest
@@ -467,29 +468,72 @@ func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.Resp
 		return
 	}
 
-	if reqBody.Id == 0 {
-		http.Error(w, "id must be non-zero", http.StatusBadRequest)
-		return
-	}
-		
 	// Make sure the request body stream is closed.
 	defer r.Body.Close()
 
-	logger.Printf("deleted wishlist row id %d", reqBody.Id)
+	// Start a transaction
+	tx, err := db.Begin()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Defer a rollback in case of errors, this will be skipped if Commit() is successful
+	defer tx.Rollback()	
+
+	// Generate the correct number of placeholders (?, ?, ?...)
+	placeholders := make([]string, len(reqBody.Ids))
+	for i := range reqBody.Ids {
+		placeholders[i] = "?"
+	}
+	placeholdersStr := strings.Join(placeholders, ", ")
 	
-	stmt, err := db.Prepare("DELETE FROM wishlist WHERE id = ?")
+	// Prepare a statement for insertion within the transaction
+	selectStmt, err := tx.Prepare(
+		fmt.Sprintf("SELECT COUNT(*) FROM wishlist WHERE id IN (%s) AND user_id != ?", placeholdersStr))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer stmt.Close()
+	defer selectStmt.Close() // Close the statement when done
 
-	result, err := stmt.Exec(reqBody.Id)
+	args := make([]interface{}, len(reqBody.Ids) + 1)
+	for i, id := range reqBody.Ids {
+		args[i] = id
+	}
+	args[len(reqBody.Ids)] = id
+	
+	var count uint
+	selectStmt.QueryRow(args...).Scan(&count)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	if count != 0 {
+		http.Error(w, "Attempt to delete wishlist rows not owned by user", http.StatusUnauthorized)
+		return
+	}
+	
+	deleteStmt, err := tx.Prepare(
+		fmt.Sprintf("DELETE FROM wishlist WHERE id IN (%s) AND user_id == ?", placeholdersStr))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer deleteStmt.Close()
+
+	result, err := deleteStmt.Exec(args...)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	
 	rowsAffected, err := result.RowsAffected()
 	if err != nil && rowsAffected == 0 {
 		http.Error(w, "non-existent row", http.StatusNotFound)

@@ -1,9 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate, setWishlistUpToDate}) {
+function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate,
+                        setWishlistUpToDate, loggedInUserInfo}) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [checkedItems, setCheckedItems] = useState([]);
+
+    const updateCheckedItems = (itemId, isChecked) => {
+        const updatedListOfItems = [...checkedItems];
+        if (isChecked) {
+            updatedListOfItems.push(itemId);
+        } else {
+            var idx = updatedListOfItems.indexOf(itemId)
+            if (idx !== -1) {
+                updatedListOfItems.splice(idx, 1)
+            }
+        }
+        setCheckedItems(updatedListOfItems);
+    }
     
     useEffect(() => {
         const fetchData = async () => {
@@ -42,30 +57,78 @@ function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate, 
 
     // Extract column headers from the keys of the first object
     const columns = Object.keys(data["headers"]);
+
+    const isOwner = displayedWishlistUser !== null && displayedWishlistUser["id"] === loggedInUserInfo["id"];
+
+    async function doDelete() {
+        try {
+            // XXX: there may be stuff in checkedItems may be out of sync with what's actually
+            // checked on screen
+            
+            const response = await fetch('/api/wishlist', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({"ids": checkedItems })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            setCheckedItems([])
+            setWishlistUpToDate(false)
+        } catch (error) {
+            // XXX: handle this?
+        }
+    }
     
     return (
         <div>
             <h1>{displayedWishlistUser["first"]}'s Wishlist</h1>
-            <table>
-                <thead>
-                    <tr>
-                        {columns.map((column, index) => (
-                            <th key={index}>{column}</th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {data["entries"] === null ? null : data["entries"].map((row, rowIndex) => (
-                        <tr key={rowIndex}>
-                            {columns.map((column, colIndex) => (
-                                <td key={colIndex}>{row[column]}</td>
+                <table>
+                    <thead>
+                        <tr>
+                            <th/>
+                            {columns.map((column, index) => (
+                                <th key={index}>{column}</th>
                             ))}
                         </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    );
+                    </thead>
+                    <tbody>
+                        {data["entries"] === null ? null : data["entries"].map((row, rowIndex) => (
+                            <tr key={rowIndex}>
+                                <td>
+                                    {!isOwner ? null :
+                                     <input
+                                         type="checkbox"
+                                         checked={checkedItems.indexOf(row["id"]) !== -1}
+                                         onChange={(event) =>
+                                             updateCheckedItems(row["id"], event.target.checked)}
+                                     />
+                                    }
+                                </td>
+                                {columns.map((column, colIndex) => (
+                                    <td key={colIndex}>{row[column]}</td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                {!isOwner ? null :
+                 <>
+                     <button onClick={doDelete} disabled={checkedItems.length === 0}>
+                         Delete Selected Items
+                     </button>
+                     <br/>
+                     <button onClick={() => setCheckedItems([])} disabled={checkedItems.length === 0}>
+                         Clear Selection
+                     </button>
+                 </>
+                }
+                </div>
+                );
 }
 
 function WishlistAdder({setWishlistUpToDate}) {
@@ -469,8 +532,9 @@ function Wishlist({setIsSignedIn}) {
             <WishlistItems setIsSignedIn={setIsSignedIn}
                            displayedWishlistUser={displayedWishlistUser}
                            wishlistUpToDate={wishlistUpToDate}
-                           setWishlistUpToDate={setWishlistUpToDate}/>
-            {displayedWishlistUser === loggedInUserInfo["id"] ? <WishlistAdder setWishlistUpToDate={setWishlistUpToDate}/> : null}
+                           setWishlistUpToDate={setWishlistUpToDate}
+                           loggedInUserInfo={loggedInUserInfo}/>
+            {displayedWishlistUser !== null && displayedWishlistUser["id"] === loggedInUserInfo["id"] ? <WishlistAdder setWishlistUpToDate={setWishlistUpToDate}/> : null}
             <WishlistSelector setDisplayedWishlistUser={setDisplayedWishlistUser}/>
             <LogoutButton setIsSignedIn={setIsSignedIn}/>
         </div>
