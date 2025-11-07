@@ -329,13 +329,19 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 }
 
 func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	type Comment struct {
+		Id uint64 `json:"id"`
+		First string `json:"first"`
+		Last string `json:"last"`
+		Comment string `json:"comment"`
+	}
+	
 	type WishlistEntry struct {
 		Id uint64 `json:"id"`
 		Description string `json:"description"`
 		Source string `json:"source"`
 		Cost string `json:"cost"`
-		OwnerNotes *string `json:"owner_notes"`
-		BuyerNotes *string `json:"buyer_notes"`
+		Comments []Comment `json:"comments"`
 	}
 	
 	type WishlistGetResponse struct {
@@ -360,7 +366,7 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 	// Make sure the request body stream is closed.
 	defer r.Body.Close()
 
-	stmt, err := db.Prepare("SELECT id,description,source,cost,owner_notes,buyer_notes FROM wishlist WHERE user_id = ?")
+	stmt, err := db.Prepare("SELECT id,description,source,cost FROM wishlist WHERE user_id = ?")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -379,16 +385,10 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 		response.Entries = append(response.Entries, WishlistEntry{})
 		entry := &response.Entries[len(response.Entries)-1]
 		
-		err = rows.Scan(&entry.Id, &entry.Description, &entry.Source, &entry.Cost, &entry.OwnerNotes,
-			&entry.BuyerNotes)
+		err = rows.Scan(&entry.Id, &entry.Description, &entry.Source, &entry.Cost)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-
-		// requesting our own wishlist, we don't get to see the buyer notes
-		if queryUserId == id {
-			entry.BuyerNotes = nil
 		}
 	}
 	err = rows.Err()
@@ -397,6 +397,54 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 		return
 	}
 
+
+	if queryUserId != id {
+		stmt.Close()
+		
+		// XXX: use a txn to get a consistent view with the previous select
+		
+		stmt, err := db.Prepare(`
+            SELECT wishlist.id, comments.id, users.first_name, users.last_name, comments.comment
+            FROM wishlist
+            INNER JOIN comments on comments.wishlist_item_id = wishlist.id
+            INNER JOIN users on comments.user_id = users.id where wishlist.user_id == ?`)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
+
+		rows, err := stmt.Query(queryUserId)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var wishlistId uint64
+			var comment Comment
+			err = rows.Scan(&wishlistId, &comment.Id, &comment.First, &comment.Last, &comment.Comment)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// XXX: N^2, return a map?
+			for idx, _ := range response.Entries {
+				var entry = &response.Entries[idx]
+				if entry.Id == wishlistId {
+					entry.Comments = append(entry.Comments, comment)
+				}
+			}
+		}
+		err = rows.Err()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	
 	// Encode the data and write it to the response
 	encoder := json.NewEncoder(w)
 	if err := encoder.Encode(response); err != nil {                  
@@ -626,6 +674,133 @@ func handleUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 	}
 }
 
+func handleCommentPost(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	type CommentRequest struct {
+		// wishlist row id
+		Id uint64 `json:"id"`
+		Comment string `json:"comment"`
+	}
+
+	var reqBody CommentRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&reqBody); err != nil {
+		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+		return
+	}
+	
+	// Make sure the request body stream is closed.
+	defer r.Body.Close()
+
+	if reqBody.Comment == "" || reqBody.Id == 0 {
+		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+		return
+	}
+	
+	// verify user isn't trying to comment on their own wishlist
+	stmt, err := db.Prepare("SELECT user_id FROM wishlist WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	var wishlistRowUser int64
+	err = stmt.QueryRow(reqBody.Id).Scan(&wishlistRowUser)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if uint64(wishlistRowUser) == id {
+		http.Error(w, "can't comment on your own wishlist", http.StatusUnauthorized)
+		return
+	}
+	stmt.Close()
+
+	// no TOCU race with the check above because wishlist row ownership is imutable,
+	// so no need for a txn.
+	
+	stmt, err = db.Prepare("INSERT INTO comments(wishlist_item_id, user_id, comment) VALUES(?, ?, ?)")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+	
+	_, err = stmt.Exec(reqBody.Id, id, reqBody.Comment)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func handleCommentDelete(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	type DeleteRequest struct {
+		Id uint64 `json:"id"`
+	}
+
+	var reqBody DeleteRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&reqBody); err != nil {
+		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Make sure the request body stream is closed.
+	defer r.Body.Close()
+	
+	stmt, err := db.Prepare("DELETE FROM comments WHERE id == ? AND user_id == ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	result, err := stmt.Exec(reqBody.Id, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil && rowsAffected == 0 {
+		// XXX: be more precise with the error here
+		http.Error(w, "user id mismatch", http.StatusUnauthorized)
+		return
+	}
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func handleComments(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err, id := authenticateUser(logger, db, w, r)
+		if err != nil {
+			return
+		}
+
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "", http.StatusUnsupportedMediaType)
+			return
+		}
+		
+		if r.Method == http.MethodPost {
+			handleCommentPost(id, logger, db, w, r)
+		} else if r.Method == http.MethodDelete {
+			handleCommentDelete(id, logger, db, w, r)
+		} else {
+			http.Error(w, "", http.StatusMethodNotAllowed)
+			return
+		}
+	}
+}
+
+
 func initDb(logger *log.Logger, config *Config) *sql.DB {
 	// Open (or create) the SQLite database file
 	db, err := sql.Open("sqlite3", config.DbPath)
@@ -661,7 +836,7 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
         creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
         expiry_time DATETIME,
         user_agent TEXT,
-        FOREIGN KEY (id) REFERENCES users (id)
+        FOREIGN KEY (id) REFERENCES users (id) ON DELETE CASCADE
 	);
 	`
 	_, err = db.Exec(sqlStmt)
@@ -677,10 +852,8 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
         description TEXT NOT NULL,
         source TEXT NOT NULL,
         cost TEXT NOT NULL,
-        owner_notes TEXT,
-        buyer_notes TEXT,
         creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id)
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 	);
 	`
 	_, err = db.Exec(sqlStmt)
@@ -688,6 +861,42 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 		logger.Fatalf("Error creating wishlist table: %v", err)
 	}
 	logger.Println("Table 'wishlist' created or already exists.")	
+
+	sqlStmt = `
+	CREATE INDEX IF NOT EXISTS idx_wishlist_user ON wishlist (user_id)
+	`
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		logger.Fatalf("Error creating wishlist index: %v", err)
+	}
+	logger.Println("Index 'idx_wishlist_user' created or already exists.")	
+	
+	sqlStmt = `
+	CREATE TABLE IF NOT EXISTS comments (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+        wishlist_item_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        comment TEXT NOT NULL,
+        creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (wishlist_item_id) REFERENCES wishlist (id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+	);
+	`
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		logger.Fatalf("Error creating comments table: %v", err)
+	}
+	logger.Println("Table 'comments' created or already exists.")	
+
+	sqlStmt = `
+	CREATE INDEX IF NOT EXISTS idx_comments_wishlist_item ON comments (wishlist_item_id)
+	`
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		logger.Fatalf("Error creating comments index: %v", err)
+	}
+	logger.Println("Index 'idx_comments_wishlist_item' created or already exists.")	
+
 	
 	return db
 }
@@ -701,7 +910,8 @@ func addRoutes(
 	mux.Handle("/api/session", handleSession(logger, db))
 	mux.Handle("/api/signup", handleSignup(logger, db))
 	mux.Handle("/api/wishlist", handleWishlist(logger, db))
-	mux.Handle("/api/users", handleUsers(logger, db))	
+	mux.Handle("/api/users", handleUsers(logger, db))
+	mux.Handle("/api/comments", handleComments(logger, db))
 }
 
 var requestIdCounter atomic.Uint64

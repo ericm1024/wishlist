@@ -6,7 +6,8 @@ function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate,
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [checkedItems, setCheckedItems] = useState([]);
-
+    const [comments, setComments] = useState({})
+        
     const updateCheckedItems = (itemId, isChecked) => {
         const updatedListOfItems = [...checkedItems];
         if (isChecked) {
@@ -81,6 +82,67 @@ function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate,
             setWishlistUpToDate(false)
         } catch (error) {
             // XXX: handle this?
+            console.log('Error deleting item: ' + error.message);
+        }
+    }
+
+    function handleComment(comment, id) {
+        var newComments = structuredClone(comments)
+        
+        if (comment !== null) {
+            newComments[id] = comment
+        } else  {
+            delete newComments[id]
+        }
+        
+        setComments(newComments)
+    };
+    
+    async function doComment(rowId) {
+        try {
+            const response = await fetch('/api/comments', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    "id": rowId,
+                    "comment": comments[rowId],
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            handleComment(null, rowId)
+            setWishlistUpToDate(false)
+        } catch (error) {
+            // XXX: handle this?
+            console.log('Error adding comment: ' + error.message);
+        }
+    }
+
+    async function deleteComment(commentId) {
+        try {
+            const response = await fetch('/api/comments', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    "id": commentId,
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            setWishlistUpToDate(false)
+        } catch (error) {
+            // XXX: handle this?
+            console.log('Error deleting comment: ' + error.message);
         }
     }
     
@@ -110,8 +172,34 @@ function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate,
                                     }
                                 </td>
                                 {columns.map((column, colIndex) => (
-                                    <td key={colIndex}>{row[column]}</td>
+                                    column === "comments" ? null : 
+                                     <td key={colIndex}>{row[column]}</td>
                                 ))}
+                                <td>
+                                    {isOwner ? null :
+                                     <>
+                                         {!row.comments ? null : row.comments.map((comment, index) => (
+                                             <>
+                                             <p key={2 * index}>
+                                                 {comment.first + " " + comment.last + ": " + comment.comment}
+                                             </p>
+                                                 <button key={(2 * index) + 1} onClick={() => deleteComment(comment.id)}>
+                                                 Delete Comment
+                                             </button>
+                                             </>                 
+                                         ))}
+                                 <input
+                                     type="text"
+                                     name="comment"
+                                     value={comments[row["id"]] === undefined ? "" : comments[row["id"]]}
+                                     onChange={(event) => handleComment(event.target.value, row["id"])}
+                                 />
+                                 <button onClick={() => doComment(row["id"])}>
+                                     Add Comment
+                                 </button>
+                                         </>
+                                }
+                                 </td>
                             </tr>
                         ))}
                     </tbody>
@@ -188,8 +276,6 @@ function WishlistAdder({setWishlistUpToDate}) {
         } catch (error) {
             setPostResponse('Error sending data: ' + error.message);
         }
-
-        console.log("formState", formState)
     }
     
     return (
