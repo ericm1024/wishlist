@@ -331,9 +331,11 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	type Comment struct {
 		Id uint64 `json:"id"`
+		UserId uint64 `json:"user_id"`
 		First string `json:"first"`
 		Last string `json:"last"`
 		Comment string `json:"comment"`
+		Timestamp time.Time `json:"timestamp"`
 	}
 	
 	type WishlistEntry struct {
@@ -404,10 +406,19 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 		// XXX: use a txn to get a consistent view with the previous select
 		
 		stmt, err := db.Prepare(`
-            SELECT wishlist.id, comments.id, users.first_name, users.last_name, comments.comment
-            FROM wishlist
-            INNER JOIN comments on comments.wishlist_item_id = wishlist.id
-            INNER JOIN users on comments.user_id = users.id where wishlist.user_id == ?`)
+            SELECT wishlist.id,
+                   comments.id,
+                   users.id,
+                   users.first_name,
+                   users.last_name,
+                   comments.comment,
+                   comments.creation_time
+            FROM
+                   wishlist
+            INNER JOIN
+                   comments on comments.wishlist_item_id = wishlist.id
+            INNER JOIN
+                   users on comments.user_id = users.id where wishlist.user_id == ?`)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -424,7 +435,7 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 		for rows.Next() {
 			var wishlistId uint64
 			var comment Comment
-			err = rows.Scan(&wishlistId, &comment.Id, &comment.First, &comment.Last, &comment.Comment)
+			err = rows.Scan(&wishlistId, &comment.Id, &comment.UserId, &comment.First, &comment.Last, &comment.Comment, &comment.Timestamp)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
