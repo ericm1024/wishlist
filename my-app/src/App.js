@@ -41,8 +41,10 @@ function WishlistRow({row, isOwner, setWishlistUpToDate}) {
                 <td> {row.cost} </td>
                 <td> {row.source} </td>
                 <td> {row.owner_notes} </td>
-                <td> {row.buyer_notes} </td>
-                <td>{!isOwner ? null : <DeleteWishlistEntryButton rowId={row.id}/>} </td>
+                {isOwner
+                 ? <td> <DeleteWishlistEntryButton rowId={row.id}/> </td>
+                 : <td> {row.buyer_notes} </td>
+                }
             </tr>);
 }
 
