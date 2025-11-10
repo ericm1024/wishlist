@@ -1,111 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-function Comment({comment, setWishlistUpToDate, loggedInUserInfo}) {
-
-    async function deleteComment(commentId) {
-        try {
-            const response = await fetch('/api/comments', {
-                method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    "id": commentId,
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            setWishlistUpToDate(false)
-        } catch (error) {
-            // XXX: handle this?
-            console.log('Error deleting comment: ' + error.message);
-        }
-    }    
-    
-    var date = new Date(Date.parse(comment.timestamp)).toLocaleString();
-
-    return (<div className="comment-container">
-                <div className="comment">
-                    <p>
-                        { "(" + date + ")" + comment.first + " " + comment.last}
-                    </p>
-                    <p>
-                        {comment.comment}
-                    </p>
-                </div>
-                <div>
-                    {loggedInUserInfo["id"] !== comment.user_id ? null : 
-                     <button
-                         className="comment-delete-button"
-                         onClick={() => deleteComment(comment.id)}>
-                         Delete Comment
-                     </button>
-                    }
-                </div>
-            </div>)
-}
-
-function CommentInput({rowId, setWishlistUpToDate}) {
-    const [commentInput, setCommentInput] = useState("")
-    
-    async function postComment() {
-        try {
-            const response = await fetch('/api/comments', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    "id": rowId,
-                    "comment": commentInput,
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            setCommentInput("")
-            setWishlistUpToDate(false)
-        } catch (error) {
-            // XXX: handle this?
-            console.log('Error adding comment: ' + error.message);
-        }
-    }
-
-    return (<div>
-                <input
-                    type="text"
-                    name="comment"
-                    value={commentInput}
-                    placeholder='Add a comment'
-                    onChange={(event) => setCommentInput(event.target.value)}
-                />
-                {commentInput.length === 0 ? null : 
-                 <button onClick={postComment} >
-                     Post
-                 </button>
-                }
-            </div>)
-}
-
-function ItemComments({rowId, comments, setWishlistUpToDate, loggedInUserInfo}) {
-
-    return (<div>
-                {!comments ? null : comments.map((comment, index) => (
-                    <Comment key={index}
-                             comment={comment}
-                             setWishlistUpToDate={setWishlistUpToDate}
-                             loggedInUserInfo={loggedInUserInfo}/>
-                ))}
-                <CommentInput rowId={rowId} setWishlistUpToDate={setWishlistUpToDate}/>
-            </div>)
-}
-
-function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate,
+function WishlistItems({displayedWishlistUser, wishlistUpToDate,
                         setWishlistUpToDate, loggedInUserInfo}) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -138,11 +33,6 @@ function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate,
                 });
 
                 if (!response.ok) {
-                    if (response.status === 401) {
-                        // we tried to fetch the wishlist but we're not signed in. Back out
-                        setIsSignedIn(false)
-                        return
-                    }
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 setData(await response.json());
@@ -155,7 +45,7 @@ function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate,
         };
         
         fetchData();
-    }, [setIsSignedIn, displayedWishlistUser, wishlistUpToDate, setWishlistUpToDate]);
+    }, [displayedWishlistUser, wishlistUpToDate, setWishlistUpToDate]);
 
     if (loading) return <p>Loading data...</p>;
     if (error) return <p>Error: {error.message}</p>;
@@ -192,7 +82,6 @@ function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate,
         
     return (
         <div>
-            <h1>{displayedWishlistUser["first"]}'s Wishlist</h1>
                 <table>
                     <thead>
                         <tr>
@@ -216,18 +105,8 @@ function WishlistItems({setIsSignedIn, displayedWishlistUser, wishlistUpToDate,
                                 </td>
                                 }
                                 {columns.map((column, colIndex) => (
-                                    column === "comments" ? null : 
                                      <td key={colIndex}>{row[column]}</td>
                                 ))}
-                                <td>
-                                    {isOwner ? null : <ItemComments
-                                                          rowId={row["id"]}
-                                                          comments={row.comments}
-                                                          setWishlistUpToDate={setWishlistUpToDate}
-                                                          loggedInUserInfo={loggedInUserInfo}
-                                                      />}
-                                    
-                                 </td>
                             </tr>
                         ))}
                     </tbody>
@@ -256,6 +135,8 @@ function WishlistAdder({setWishlistUpToDate}) {
     });
     const [postResponse, setPostResponse] = useState('');      
 
+    const dialogRef = useRef(null);
+    
     function handleDescription(event) {
         setFormState(formState => ({
             ...formState,
@@ -306,6 +187,7 @@ function WishlistAdder({setWishlistUpToDate}) {
                 owner_notes: ''
             })
             setWishlistUpToDate(false)
+            dialogRef.current.close();
         } catch (error) {
             setPostResponse('Error sending data: ' + error.message);
         }
@@ -313,7 +195,10 @@ function WishlistAdder({setWishlistUpToDate}) {
     
     return (
         <div>
-            <h1> Add to Wishlist </h1>
+            <button onClick={() => dialogRef.current.showModal()}>Add Item</button>
+
+            <dialog ref={dialogRef}>
+                            <h1> Add to Wishlist </h1>
             Description <br/>
             <input
                 type="text"
@@ -346,12 +231,14 @@ function WishlistAdder({setWishlistUpToDate}) {
                 Add Item
             </button>
             {postResponse && <p>{postResponse}</p>}
+
+      </dialog>            
         </div>
     );
 }
 
 
-function Login({setShowLogin, setIsSignedIn}) {
+function Login({setShowLogin, setLoggedInUserInfo}) {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loginError, setLoginError] = useState('');
@@ -377,12 +264,12 @@ function Login({setShowLogin, setIsSignedIn}) {
                 })
             });
             
-            const data = await response.text()
+            const data = await response.json()
 
             if (!response.ok) {
                 setLoginError(data)
             } else {
-                setIsSignedIn(true)
+                setLoggedInUserInfo(data)
             }
         } catch (error) {
             loginError(error.message)
@@ -519,7 +406,7 @@ function Signup({setShowLogin, setIsSignedIn}) {
     );
 }
 
-function LogoutButton({setIsSignedIn}) {
+function LogoutButton({setLoggedInUserInfo}) {
     async function doLogout() {
         try {
             const response = await fetch('/api/session', {
@@ -531,7 +418,7 @@ function LogoutButton({setIsSignedIn}) {
             }
 
             await response
-            setIsSignedIn(false)
+            setLoggedInUserInfo(null)
         } catch (error) {
             console.log('error logging out' + error.message);
         }
@@ -598,23 +485,39 @@ function WishlistSelector({setDisplayedWishlistUser}) {
     );    
 }
 
-function LoginOrSignup({setIsSignedIn}) {
+function LoginOrSignup({setLoggedInUserInfo}) {
     const [showLogin, setShowLogin] = useState(true);
     return (
         <div>
-            {showLogin ? <Login setShowLogin={setShowLogin} setIsSignedIn={setIsSignedIn}/>
-             : <Signup setShowLogin={setShowLogin} setIsSignedIn={setIsSignedIn}/>}
+            {showLogin ? <Login setShowLogin={setShowLogin} setLoggedInUserInfo={setLoggedInUserInfo}/>
+             : <Signup setShowLogin={setShowLogin} setLoggedInUserInfo={setLoggedInUserInfo}/>}
         </div>
     );
 }
 
-function Wishlist({setIsSignedIn}) {
-    const [displayedWishlistUser, setDisplayedWishlistUser] = useState(null)
+function Wishlist({loggedInUserInfo}) {
+    const [displayedWishlistUser, setDisplayedWishlistUser] = useState(loggedInUserInfo)
     const [wishlistUpToDate, setWishlistUpToDate] = useState(true)
-    const [loggedInUserInfo, setLoggedInUserInfo] = useState({});
+    
+    return (
+        <div>
+            <h1>{displayedWishlistUser["first"]}'s Wishlist</h1>
+            {displayedWishlistUser !== null && displayedWishlistUser["id"] === loggedInUserInfo["id"] ? <WishlistAdder setWishlistUpToDate={setWishlistUpToDate}/> : null}
+            <WishlistItems displayedWishlistUser={displayedWishlistUser}
+                           wishlistUpToDate={wishlistUpToDate}
+                           setWishlistUpToDate={setWishlistUpToDate}
+                           loggedInUserInfo={loggedInUserInfo}/>
+            <WishlistSelector setDisplayedWishlistUser={setDisplayedWishlistUser}/>
+        </div>
+    );
+}
+
+export default function MyApp() {
+
+    const [loggedInUserInfo, setLoggedInUserInfo] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);        
-
+    
     useEffect(() => {
         const fetchSession = async () => {
             try {
@@ -627,7 +530,6 @@ function Wishlist({setIsSignedIn}) {
 
                 if (!response.ok) {
                     if (response.status === 401) {
-                        //setIsSignedIn(false)
                         return
                     }
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -645,31 +547,15 @@ function Wishlist({setIsSignedIn}) {
 
     if (loading) return <p>Loading data...</p>;
     if (error) return <p>Error: {error.message}</p>;
-
-    if (displayedWishlistUser === null) {
-        setDisplayedWishlistUser(loggedInUserInfo)
-    }
     
     return (
         <div>
-            <WishlistItems setIsSignedIn={setIsSignedIn}
-                           displayedWishlistUser={displayedWishlistUser}
-                           wishlistUpToDate={wishlistUpToDate}
-                           setWishlistUpToDate={setWishlistUpToDate}
-                           loggedInUserInfo={loggedInUserInfo}/>
-            {displayedWishlistUser !== null && displayedWishlistUser["id"] === loggedInUserInfo["id"] ? <WishlistAdder setWishlistUpToDate={setWishlistUpToDate}/> : null}
-            <WishlistSelector setDisplayedWishlistUser={setDisplayedWishlistUser}/>
-            <LogoutButton setIsSignedIn={setIsSignedIn}/>
-        </div>
-    );
-}
-
-export default function MyApp() {
-    const [isSignedIn, setIsSignedIn] = useState(true);
-                                      
-    return (
-        <div>
-            {isSignedIn ? <Wishlist setIsSignedIn={setIsSignedIn}/> : <LoginOrSignup setIsSignedIn={setIsSignedIn}/>}
+            {loggedInUserInfo !== null ?
+             <div>
+                 <Wishlist loggedInUserInfo={loggedInUserInfo}/>
+                 <LogoutButton setLoggedInUserInfo={setLoggedInUserInfo}/>
+             </div>
+             : <LoginOrSignup setLoggedInUserInfo={setLoggedInUserInfo}/>}
         </div>
     );
 }
