@@ -1,25 +1,57 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+function DeleteWishlistEntryButton({rowId, setWishlistUpToDate}) {
+    async function doDelete() {
+        try {
+            const response = await fetch('/api/wishlist', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({"ids": [rowId] })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            setWishlistUpToDate(false)
+        } catch (error) {
+            // XXX: handle this?
+            console.log('Error deleting item: ' + error.message);
+        }
+    }
+
+    return (<button
+                onClick={doDelete}
+                title="Delete wishlist entry">
+                {/*
+                  * this is from here https://icons.getbootstrap.com/icons/trash/
+                  */}
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>
+                    <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>
+                </svg>
+            </button>);
+}
+
+function WishlistRow({row, isOwner, setWishlistUpToDate}) {
+    return (<tr>
+                <td> {row.description} </td>
+                <td> {row.cost} </td>
+                <td> {row.source} </td>
+                <td> {row.owner_notes} </td>
+                <td> {row.buyer_notes} </td>
+                <td>{!isOwner ? null : <DeleteWishlistEntryButton rowId={row.id}/>} </td>
+            </tr>);
+}
+
 function WishlistItems({displayedWishlistUser, wishlistUpToDate,
                         setWishlistUpToDate, loggedInUserInfo}) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [checkedItems, setCheckedItems] = useState([]);
         
-    const updateCheckedItems = (itemId, isChecked) => {
-        const updatedListOfItems = [...checkedItems];
-        if (isChecked) {
-            updatedListOfItems.push(itemId);
-        } else {
-            var idx = updatedListOfItems.indexOf(itemId)
-            if (idx !== -1) {
-                updatedListOfItems.splice(idx, 1)
-            }
-        }
-        setCheckedItems(updatedListOfItems);
-    }
-    
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -50,80 +82,32 @@ function WishlistItems({displayedWishlistUser, wishlistUpToDate,
     if (loading) return <p>Loading data...</p>;
     if (error) return <p>Error: {error.message}</p>;
 
-    // Extract column headers from the keys of the first object
-    const columns = Object.keys(data["headers"]);
-
     const isOwner = displayedWishlistUser !== null && displayedWishlistUser["id"] === loggedInUserInfo["id"];
 
-    async function doDelete() {
-        try {
-            // XXX: there may be stuff in checkedItems may be out of sync with what's actually
-            // checked on screen
-            
-            const response = await fetch('/api/wishlist', {
-                method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({"ids": checkedItems })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            setCheckedItems([])
-            setWishlistUpToDate(false)
-        } catch (error) {
-            // XXX: handle this?
-            console.log('Error deleting item: ' + error.message);
-        }
-    }
-        
     return (
         <div>
-                <table>
-                    <thead>
-                        <tr>
-                            {!isOwner ? null : <th/> }
-                            {columns.map((column, index) => (
-                                <th key={index}>{column}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {data["entries"] === null ? null : data["entries"].map((row, rowIndex) => (
-                            <tr key={rowIndex}>
-                                {!isOwner ? null :
-                                <td>
-                                     <input
-                                         type="checkbox"
-                                         checked={checkedItems.indexOf(row["id"]) !== -1}
-                                         onChange={(event) =>
-                                             updateCheckedItems(row["id"], event.target.checked)}
-                                     />
-                                </td>
-                                }
-                                {columns.map((column, colIndex) => (
-                                     <td key={colIndex}>{row[column]}</td>
-                                ))}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-                {!isOwner ? null :
-                 <>
-                     <button onClick={doDelete} disabled={checkedItems.length === 0}>
-                         Delete Selected Items
-                     </button>
-                     <br/>
-                     <button onClick={() => setCheckedItems([])} disabled={checkedItems.length === 0}>
-                         Clear Selection
-                     </button>
-                 </>
-                }
-                </div>
-                );
+            <table>
+                <thead>
+                    <tr>
+                        <th> Item </th>
+                        <th> Cost </th>
+                        <th> Source </th>
+                        <th> Notes </th>
+                        {isOwner ? null : <th> Buyer Notes </th>}
+                        <th/>
+                    </tr>
+                </thead>
+                <tbody>
+                    {data["entries"] === null ? null : data["entries"].map((row, rowIndex) => (
+                        <WishlistRow key={rowIndex}
+                                     row={row}
+                                     isOwner={isOwner}
+                                     setWishlistUpToDate={setWishlistUpToDate}/>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
 }
 
 function WishlistAdder({setWishlistUpToDate}) {
