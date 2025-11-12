@@ -19,18 +19,3 @@ border:1px solid #000000;
 table td{
 border:1px solid #000000;
 }
-
-.comment-container {
-    display: flex;
-    flex-direction: row;
-    padding: 0px;
-    background-color: lightgray;
-    justify-content: space-between;
-}
-.comment {
-    width: 200pt;
-}
-.comment-delete-button {
-    display: flex;    
-    justify-content: end;
-}

@@ -35,6 +35,109 @@ function DeleteWishlistEntryButton({rowId, setWishlistUpToDate}) {
             </button>);
 }
 
+function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
+    const [formState, setFormState] = useState({});
+    const [patchResponse, setPostResponse] = useState('');      
+
+    const dialogRef = useRef(null);
+
+    function updateField(field, value) {
+        let copy = structuredClone(formState)
+        copy[field] = value
+        setFormState(copy)
+    }
+    
+    async function doPatch() {
+        try {
+            const response = await fetch('/api/wishlist', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({...formState,
+                                      "id": row.id,
+                                      "seq": row.seq})
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            setWishlistUpToDate(false)
+            setFormState({})
+            dialogRef.current.close();
+        } catch (error) {
+            setPostResponse('Error sending data: ' + error.message);
+        }
+    }
+
+    return (<>
+                <button
+                    onClick={() => dialogRef.current.showModal()}
+                    title="Edit wishlist entry">
+                    {/*
+                      * this is from here https://icons.getbootstrap.com/icons/pencil/
+                      */}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325"/>
+                    </svg>
+                </button>
+
+                <dialog ref={dialogRef}>
+                    <h1> Edit {isOwner ? "Wishlist Entry" : "Buyer Notes"} </h1>
+                    {isOwner ?
+                     <>
+                         Description <br/>
+                         <input
+                             type="text"
+                             name="description"
+                             value={formState.description !== undefined ? formState.description : row.description}
+                             onChange={(event) => updateField("description", event.target.value)}
+                         /> <br/>
+                         Source <br/>
+                         <input
+                             type="text"
+                             name="source"
+                             value={formState.source !== undefined ? formState.source : row.source}
+                             onChange={(event) => updateField("source", event.target.value)}
+                         /> <br/>
+                         Cost <br/>
+                         <input
+                             type="text"
+                             name="cost"
+                             value={formState.cost !== undefined ? formState.cost : row.cost}
+                             onChange={(event) => updateField("cost", event.target.value)}
+                         /> <br/>            
+                         Notes <br/>
+                         <input
+                             type="text"
+                             name="owner_notes"
+                             value={formState.owner_notes !== undefined ? formState.owner_notes : row.owner_notes ? row.owner_notes : ""}
+                             onChange={(event) => updateField("owner_notes", event.target.value)}
+                         />
+                     </>
+                     : /* !isOwner */
+                     <>
+                         Buyer Notes <br/>
+                         <input
+                             type="text"
+                             name="buyer_notes"
+                             value={formState.buyer_notes !== undefined ? formState.buyer_notes : row.buyer_notes}
+                             onChange={(event) => updateField("buyer_notes", event.target.value)}
+                         />
+                     </>
+                    }
+                    <br/>
+                    <button onClick={doPatch}>
+                        Update Item
+                    </button>
+                    {patchResponse && <p>{patchResponse}</p>}
+
+                </dialog>
+            </>
+           );
+}
+
 function WishlistRow({row, isOwner, setWishlistUpToDate}) {
     return (<tr>
                 <td> {row.description} </td>
@@ -42,9 +145,19 @@ function WishlistRow({row, isOwner, setWishlistUpToDate}) {
                 <td> {row.source} </td>
                 <td> {row.owner_notes} </td>
                 {isOwner
-                 ? <td> <DeleteWishlistEntryButton rowId={row.id}/> </td>
+                 ? <td>
+                       <DeleteWishlistEntryButton
+                           rowId={row.id}
+                           setWishlistUpToDate={setWishlistUpToDate}/>
+                   </td>
                  : <td> {row.buyer_notes} </td>
                 }
+                <td>
+                    <EditWishlistEntryButton
+                        row={row}
+                        isOwner={isOwner}
+                        setWishlistUpToDate={setWishlistUpToDate}/>
+                </td>
             </tr>);
 }
 
@@ -57,7 +170,7 @@ function WishlistItems({displayedWishlistUser, wishlistUpToDate,
     useEffect(() => {
         const fetchData = async () => {
             try {
-                var url = '/api/wishlist?' + new URLSearchParams({
+                let url = '/api/wishlist?' + new URLSearchParams({
                         userId: displayedWishlistUser["id"]
                     }).toString()
                 const response = await fetch(url, {

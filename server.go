@@ -339,6 +339,7 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	type WishlistEntry struct {
 		Id uint64 `json:"id"`
+		Seq uint64 `json:"seq"`
 		Description string `json:"description"`
 		Source string `json:"source"`
 		Cost string `json:"cost"`
@@ -368,7 +369,7 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 	// Make sure the request body stream is closed.
 	defer r.Body.Close()
 
-	stmt, err := db.Prepare("SELECT id,description,source,cost,owner_notes,buyer_notes FROM wishlist WHERE user_id = ?")
+	stmt, err := db.Prepare("SELECT id,sequence_number,description,source,cost,owner_notes,buyer_notes FROM wishlist WHERE user_id = ?")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -387,7 +388,7 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 		response.Entries = append(response.Entries, WishlistEntry{})
 		entry := &response.Entries[len(response.Entries)-1]
 		
-		err = rows.Scan(&entry.Id, &entry.Description, &entry.Source, &entry.Cost,
+		err = rows.Scan(&entry.Id, &entry.Seq, &entry.Description, &entry.Source, &entry.Cost,
 			&entry.OwnerNotes, &entry.BuyerNotes)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -550,6 +551,129 @@ func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.Resp
 	}
 }
 
+func handleWishlistPatch(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	type WishlistPatch struct {
+		Id uint64 `json:"id"`
+		Seq uint64 `json:"seq"`		
+		Description *string `json:"description"`
+		Source *string `json:"source"`
+		Cost *string `json:"cost"`
+		OwnerNotes *string `json:"owner_notes"`
+		BuyerNotes *string `json:"buyer_notes"`
+	}
+
+	var req WishlistPatch
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+		return
+	}
+		
+	// Make sure the request body stream is closed.
+	defer r.Body.Close()
+
+	if req.Id == 0 || req.Seq == 0 {
+		http.Error(w, "missing id or seq", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Defer a rollback in case of errors, this will be skipped if Commit() is successful
+	defer tx.Rollback()
+
+	// Prepare a statement for insertion within the transaction
+	selectStmt, err := tx.Prepare("SELECT user_id,sequence_number FROM wishlist WHERE id == ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer selectStmt.Close()
+
+	var rowUserId int64
+	var sequenceNumber int64
+	err = selectStmt.QueryRow(req.Id).Scan(&rowUserId, &sequenceNumber)
+	if err != nil {
+		http.Error(w, "error loading row", http.StatusInternalServerError)
+		return
+	}
+
+	if uint64(sequenceNumber) != req.Seq {
+		http.Error(w, fmt.Sprintf("client seq %d does not match server seq %d, try again",
+			req.Seq, sequenceNumber), http.StatusConflict)
+		return
+	}
+	
+	if uint64(rowUserId) == id {
+		if req.BuyerNotes != nil {
+			http.Error(w, "wishlist owner can not edit buyer notes", http.StatusBadRequest)
+			return
+		}
+		if req.Description == nil && req.Source == nil && req.Cost == nil && req.OwnerNotes == nil {
+			http.Error(w, "must provide something to patch", http.StatusBadRequest)
+			return
+		}
+	} else {
+		if req.Description != nil || req.Source != nil || req.Cost != nil || req.OwnerNotes != nil {
+			http.Error(w, "non-owner can only edit buyer notes", http.StatusBadRequest)
+			return
+		}
+		if req.BuyerNotes == nil {
+			http.Error(w, "must provide something to patch", http.StatusBadRequest)
+			return
+		}
+	}
+
+	var fields = []struct {
+		RequestField *string
+		DbColumn string
+	}{
+		{req.Description, "description"},
+		{req.Source, "source"},
+		{req.Cost, "cost"},
+		{req.OwnerNotes, "owner_notes"},
+		{req.BuyerNotes, "buyer_notes"},
+	}		
+	
+	var arguments []interface{}
+	var fieldsToSet []string
+	for _, mapping := range fields {
+		if mapping.RequestField != nil {
+			arguments = append(arguments, *mapping.RequestField)
+			fieldsToSet = append(fieldsToSet, fmt.Sprintf("%s = ?", mapping.DbColumn))
+		}
+	}
+	fieldsToSet = append(fieldsToSet, "sequence_number = ?")
+	arguments = append(arguments, req.Seq + 1)
+	
+	arguments = append(arguments, req.Id)
+
+	preparedStr := fmt.Sprintf("UPDATE wishlist SET %s WHERE id = ?", strings.Join(fieldsToSet, ", "))
+	logger.Printf("update statement: %s", preparedStr)
+	updateStmt, err := tx.Prepare(preparedStr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer updateStmt.Close()
+
+	_, err = updateStmt.Exec(arguments...)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}	
+}
+
 func handleWishlist(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err, id := authenticateUser(logger, db, w, r)
@@ -568,6 +692,8 @@ func handleWishlist(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 			handleWishlistPost(id, logger, db, w, r)
 		} else if r.Method == http.MethodDelete {
 			handleWishlistDelete(id, logger, db, w, r)
+		} else if r.Method == http.MethodPatch {
+			handleWishlistPatch(id, logger, db, w, r)
 		} else {
 			http.Error(w, "", http.StatusMethodNotAllowed)
 			return
@@ -682,6 +808,7 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	sqlStmt = `
 	CREATE TABLE IF NOT EXISTS wishlist (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sequence_number INTEGER DEFAULT 1,
         user_id INTEGER NOT NULL,
         description TEXT NOT NULL,
         source TEXT NOT NULL,
