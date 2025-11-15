@@ -28,11 +28,37 @@ border:1px solid #000000;
 
 .app-body {
     max-width: 70%;
-    min-width: 300px;
+    min-width: 500px;
 }
 
 .wishlist-button-container {
     display: flex;
     flex-direction: row-reverse;
     justify-content: space-between;
+}
+
+.wishlist-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.wishlist-item-container {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid black;
+    margin-bottom: 10px;
+    margin-top: 10px;
+    padding: 5px;
+    border-radius: 5px;
+}
+
+.wishlist-item-header-footer {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
+
+.wishlist-notes {
+    font-size: 85%;
+    color: #899499;
 }

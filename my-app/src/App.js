@@ -140,26 +140,26 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
 }
 
 function WishlistRow({row, isOwner, setWishlistUpToDate}) {
-    return (<tr>
-                <td> {row.description} </td>
-                <td> {row.cost} </td>
-                <td> {row.source} </td>
-                <td> {row.owner_notes} </td>
-                {isOwner
-                 ? <td>
-                       <DeleteWishlistEntryButton
-                           rowId={row.id}
-                           setWishlistUpToDate={setWishlistUpToDate}/>
-                   </td>
-                 : <td> {row.buyer_notes} </td>
-                }
-                <td>
+    return (<div className="wishlist-item-container">
+                <div className="wishlist-item-header-footer">
+                    <h3> {row.description} </h3>
+                    <p> {row.cost} </p>
+                </div>
+                <p> {row.source} </p>
+                <p className="wishlist-notes"> {row.owner_notes} </p>
+                {isOwner ? null : <p className="wishlist-notes"> {row.buyer_notes} </p>}
+                <div className="wishlist-item-header-footer">
                     <EditWishlistEntryButton
                         row={row}
                         isOwner={isOwner}
                         setWishlistUpToDate={setWishlistUpToDate}/>
-                </td>
-            </tr>);
+                    {!isOwner ? null :
+                       <DeleteWishlistEntryButton
+                           rowId={row.id}
+                           setWishlistUpToDate={setWishlistUpToDate}/>
+                    }
+                </div>
+            </div>);
 }
 
 function WishlistItems({displayedWishlistUser, wishlistUpToDate,
@@ -201,27 +201,13 @@ function WishlistItems({displayedWishlistUser, wishlistUpToDate,
     const isOwner = displayedWishlistUser !== null && displayedWishlistUser["id"] === loggedInUserInfo["id"];
 
     return (
-        <div>
-            <table>
-                <thead>
-                    <tr>
-                        <th> Item </th>
-                        <th> Cost </th>
-                        <th> Source </th>
-                        <th> Notes </th>
-                        {isOwner ? null : <th> Buyer Notes </th>}
-                        <th/>
-                    </tr>
-                </thead>
-                <tbody>
-                    {data["entries"] === null ? null : data["entries"].map((row, rowIndex) => (
-                        <WishlistRow key={rowIndex}
-                                     row={row}
-                                     isOwner={isOwner}
-                                     setWishlistUpToDate={setWishlistUpToDate}/>
-                    ))}
-                </tbody>
-            </table>
+        <div className="wishlist-list">
+            {data["entries"] === null ? null : data["entries"].map((row, rowIndex) => (
+                <WishlistRow key={rowIndex}
+                             row={row}
+                             isOwner={isOwner}
+                             setWishlistUpToDate={setWishlistUpToDate}/>
+            ))}
         </div>
     );
 }
