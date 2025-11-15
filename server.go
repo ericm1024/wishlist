@@ -2,13 +2,16 @@
 // * use DisallowUnknownFields and ensure non-nil fields for all json requests
 // * client & server side input validation for signup form
 // * client & server side input validation for login form
-// * normalize password strings? https://stackoverflow.com/a/66899076
+// * normalize password strings? https://stackoverflow.com/a/66899076 or require all-ascii
 // * limit field sizes for all client-controlled fields
 // * remove expired sessions
 // * resend session cookies periodically
 // * top-level middleware to do 'defer r.Body.Close()' bullshit
 // * helper function for request decoding
 // * Content-Security-Policy ?
+// * passing a sequence number to the client is pretty sketchy, since the client can just
+//   guess and blow away what's there, but it's sort of a 'best effort' thing, so maybe
+//   it's fine?
 
 package main
 

@@ -19,3 +19,20 @@ border:1px solid #000000;
 table td{
 border:1px solid #000000;
 }
+
+.top-container {
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+}
+
+.app-body {
+    max-width: 70%;
+    min-width: 300px;
+}
+
+.wishlist-button-container {
+    display: flex;
+    flex-direction: row-reverse;
+    justify-content: space-between;
+}

@@ -78,6 +78,7 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                     {/*
                       * this is from here https://icons.getbootstrap.com/icons/pencil/
                       */}
+                    
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
                         <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325"/>
                     </svg>
@@ -122,7 +123,7 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                          <input
                              type="text"
                              name="buyer_notes"
-                             value={formState.buyer_notes !== undefined ? formState.buyer_notes : row.buyer_notes}
+                             value={formState.buyer_notes !== undefined ? formState.buyer_notes : row.buyer_notes ? row.buyer_notes : ""}
                              onChange={(event) => updateField("buyer_notes", event.target.value)}
                          />
                      </>
@@ -294,7 +295,15 @@ function WishlistAdder({setWishlistUpToDate}) {
     
     return (
         <div>
-            <button onClick={() => dialogRef.current.showModal()}>Add Item</button>
+            <button onClick={() => dialogRef.current.showModal()}
+                    title="Add item to wishlist">
+                {/*
+                  * This is from https://icons.getbootstrap.com/icons/plus-lg/
+                  */}
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                    <path fillRule="evenodd" d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2"/>
+                </svg>
+            </button>
 
             <dialog ref={dialogRef}>
                             <h1> Add to Wishlist </h1>
@@ -533,7 +542,8 @@ function LogoutButton({setLoggedInUserInfo}) {
 function WishlistSelector({setDisplayedWishlistUser}) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);    
+    const [error, setError] = useState(null);
+    const dialogRef = useRef(null);
     
     useEffect(() => {
         const fetchData = async () => {
@@ -562,17 +572,30 @@ function WishlistSelector({setDisplayedWishlistUser}) {
 
     return (
         <div>
+            <button
+                onClick={() => dialogRef.current.showModal()}
+                title="Choose Wishlist Owner">
+                {/*
+                  * 
+                  */}
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/>
+                    </svg>
+            </button>
+            <dialog ref={dialogRef}>
             <h1>Choose Wishlist Owner</h1>
             <table>
                 <tbody>
                     {data["users"] === null ? null : data["users"].map((row, rowIndex) => (
                         <tr key={rowIndex}>
-                            <td onClick={() => setDisplayedWishlistUser({
+                            <td onClick={() => {setDisplayedWishlistUser({
                                     id: row["id"],
                                     first: row["first"],
                                     last: row["last"],
+                                });
+                                                dialogRef.current.close();
+                                                                        }
                                 }
-                                )}
                                 style={{ cursor: 'pointer', color: 'blue' }}>
                                 {row["first"] + " " + row["last"]}
                             </td>
@@ -580,6 +603,7 @@ function WishlistSelector({setDisplayedWishlistUser}) {
                     ))}
                 </tbody>
             </table>
+            </dialog>
         </div>
     );    
 }
@@ -601,12 +625,14 @@ function Wishlist({loggedInUserInfo}) {
     return (
         <div>
             <h1>{displayedWishlistUser["first"]}'s Wishlist</h1>
-            {displayedWishlistUser !== null && displayedWishlistUser["id"] === loggedInUserInfo["id"] ? <WishlistAdder setWishlistUpToDate={setWishlistUpToDate}/> : null}
+            <div className="wishlist-button-container">
+                <WishlistSelector setDisplayedWishlistUser={setDisplayedWishlistUser}/>
+                {displayedWishlistUser !== null && displayedWishlistUser["id"] === loggedInUserInfo["id"] ? <WishlistAdder setWishlistUpToDate={setWishlistUpToDate}/> : null}
+            </div>
             <WishlistItems displayedWishlistUser={displayedWishlistUser}
                            wishlistUpToDate={wishlistUpToDate}
                            setWishlistUpToDate={setWishlistUpToDate}
                            loggedInUserInfo={loggedInUserInfo}/>
-            <WishlistSelector setDisplayedWishlistUser={setDisplayedWishlistUser}/>
         </div>
     );
 }
@@ -648,13 +674,15 @@ export default function MyApp() {
     if (error) return <p>Error: {error.message}</p>;
     
     return (
-        <div>
-            {loggedInUserInfo !== null ?
-             <div>
-                 <Wishlist loggedInUserInfo={loggedInUserInfo}/>
-                 <LogoutButton setLoggedInUserInfo={setLoggedInUserInfo}/>
-             </div>
-             : <LoginOrSignup setLoggedInUserInfo={setLoggedInUserInfo}/>}
+        <div className="top-container">
+            <div className="app-body">
+                {loggedInUserInfo !== null ?
+                 <div>
+                     <Wishlist loggedInUserInfo={loggedInUserInfo}/>
+                     <LogoutButton setLoggedInUserInfo={setLoggedInUserInfo}/>
+                 </div>
+                 : <LoginOrSignup setLoggedInUserInfo={setLoggedInUserInfo}/>}
+            </div>
         </div>
     );
 }
