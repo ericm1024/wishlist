@@ -1,36 +1,36 @@
 package main
 
 import (
-    "context"
-    "crypto/rand"	
+	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-    "fmt"
-    "io"
-    "io/ioutil"	
-    "log"
-    "net"					
-    "net/http"
-    "os"			
-    "os/signal"
-    "strconv"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"strconv"
 	"strings"
-    "sync"
-    "sync/atomic"	
-    "time"				
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/matthewhartstonge/argon2"
-	
+
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/urfave/negroni"
 )
 
 type Config struct {
-	DbPath string `json:"db_path"`
+	DbPath   string `json:"db_path"`
 	HostName string `json:"host_name"`
-	Port string `json:"port"`
+	Port     string `json:"port"`
 }
 
 const sessionCookieKey = "wishlist_session_id"
@@ -80,7 +80,7 @@ func authenticateUser(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *
 }
 
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies
-func createSession(logger *log.Logger, db *sql.DB, userId int64, userAgent string, w http.ResponseWriter) (error) {
+func createSession(logger *log.Logger, db *sql.DB, userId int64, userAgent string, w http.ResponseWriter) error {
 	stmt, err := db.Prepare("INSERT INTO sessions(session_cookie, id, expiry_time, user_agent) VALUES(?, ?, ?, ?)")
 	if err != nil {
 		return err
@@ -89,37 +89,37 @@ func createSession(logger *log.Logger, db *sql.DB, userId int64, userAgent strin
 
 	// Note that no error handling is necessary, as Read always succeeds.
 	sessionCookie := make([]byte, 32)
-	rand.Read(sessionCookie)	
+	rand.Read(sessionCookie)
 
 	maxAgeSeconds := 7 * 24 * 60 * 60
-	
+
 	// 7 day session liveness
 	expiryTime := time.Now().Add(time.Duration(maxAgeSeconds) * time.Second)
-	
+
 	_, err = stmt.Exec(sessionCookie, userId, expiryTime, userAgent)
 	if err != nil {
 		return err
 	}
 
 	http.SetCookie(w, &http.Cookie{
-			Name: sessionCookieKey,
-			Value: base64.URLEncoding.EncodeToString(sessionCookie),
-			Expires: expiryTime,
-			Secure: true,
-			HttpOnly: true,
-			SameSite: http.SameSiteStrictMode,
+		Name:     sessionCookieKey,
+		Value:    base64.URLEncoding.EncodeToString(sessionCookie),
+		Expires:  expiryTime,
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
 	})
 
 	logger.Printf("Created session for user id %d agent '%s' expires at %v", userId, userAgent,
 		expiryTime)
-	
+
 	return nil
 }
 
 func handleSessionPost(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	// The struct that represents the expected JSON body.
 	type LoginRequest struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 
@@ -127,7 +127,7 @@ func handleSessionPost(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r 
 		http.Error(w, "", http.StatusUnsupportedMediaType)
 		return
 	}
-	
+
 	// 3. Decode the request body into a Go struct.
 	var reqBody LoginRequest
 	decoder := json.NewDecoder(r.Body)
@@ -151,11 +151,11 @@ func handleSessionPost(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r 
 		return
 	}
 	defer stmt.Close()
-	
+
 	var passwordHash string
 	var userId int64
 	var firstName string
-	var lastName string	
+	var lastName string
 	err = stmt.QueryRow(reqBody.Email).Scan(&passwordHash, &userId, &firstName, &lastName)
 	if err != nil {
 		// differentiate between DB issue and unknown error?
@@ -164,12 +164,12 @@ func handleSessionPost(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r 
 	}
 
 	// TODO: hash either way to prevent timing attacks to find valid emails?
-	
+
 	ok, err := argon2.VerifyEncoded([]byte(reqBody.Password), []byte(passwordHash))
 	if err != nil || !ok {
 		http.Error(w, "invalid username or password", http.StatusUnauthorized)
 		return
-	}		
+	}
 
 	err = createSession(logger, db, userId, r.Header.Get("User-Agent"), w)
 	if err != nil {
@@ -179,9 +179,9 @@ func handleSessionPost(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r 
 
 	response := User{uint64(userId), firstName, lastName}
 	encoder := json.NewEncoder(w)
-	if err := encoder.Encode(response); err != nil {    
+	if err := encoder.Encode(response); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}		
+	}
 }
 
 func handleSessionDelete(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
@@ -189,7 +189,7 @@ func handleSessionDelete(logger *log.Logger, db *sql.DB, w http.ResponseWriter, 
 	if cookie == nil {
 		return
 	}
-	
+
 	stmt, err := db.Prepare("DELETE FROM sessions WHERE session_cookie = ? RETURNING id ")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -205,14 +205,14 @@ func handleSessionDelete(logger *log.Logger, db *sql.DB, w http.ResponseWriter, 
 	}
 
 	if err != sql.ErrNoRows {
-		logger.Printf("deleting session for user %d", id)	
+		logger.Printf("deleting session for user %d", id)
 	}
 }
 
 type User struct {
-	Id uint64 `json:"id"`
+	Id        uint64 `json:"id"`
 	FirstName string `json:"first"`
-	LastName string `json:"last"`
+	LastName  string `json:"last"`
 }
 
 func handleSessionGet(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
@@ -237,13 +237,13 @@ func handleSessionGet(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *
 	}
 
 	encoder := json.NewEncoder(w)
-	if err := encoder.Encode(user); err != nil {    
+	if err := encoder.Encode(user); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}	
+	}
 }
 
 func handleSession(logger *log.Logger, db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {		
+	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			handleSessionPost(logger, db, w, r)
 		} else if r.Method == http.MethodDelete {
@@ -253,7 +253,7 @@ func handleSession(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 		} else {
 			http.Error(w, "", http.StatusMethodNotAllowed)
 			return
-		}		
+		}
 
 	}
 }
@@ -263,9 +263,9 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 	// The struct that represents the expected JSON body.
 	type SignupRequest struct {
 		FirstName string `json:"first"`
-		LastName string `json:"last"`
-		Email string `json:"email"`
-		Password string `json:"password"`		
+		LastName  string `json:"last"`
+		Email     string `json:"email"`
+		Password  string `json:"password"`
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -290,7 +290,7 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 		}
 
 		// Make sure the request body stream is closed.
-		defer r.Body.Close()	
+		defer r.Body.Close()
 
 		argon := argon2.MemoryConstrainedDefaults()
 		encoded, err := argon.HashEncoded([]byte(reqBody.Password))
@@ -301,10 +301,10 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 		stmt, err := db.Prepare("INSERT INTO users(first_name, last_name, email, password_hash) VALUES(?, ?, ?, ?)")
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error creating prepared statement: %v", err), http.StatusInternalServerError)
-			return 
+			return
 		}
 		defer stmt.Close()
-		
+
 		result, err := stmt.Exec(reqBody.FirstName, reqBody.LastName, reqBody.Email, string(encoded))
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error adding user: %v", err), http.StatusInternalServerError)
@@ -314,35 +314,35 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error getting id: %v", err), http.StatusInternalServerError)
 			return
-		}		
+		}
 		logger.Printf("Added user '%s %s' (%s) %d", reqBody.FirstName, reqBody.LastName, reqBody.Email, lastID)
-		
+
 		err = createSession(logger, db, lastID, r.Header.Get("User-Agent"), w)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error creating session %v", err), http.StatusInternalServerError)
 			return
-		}		
+		}
 	}
 }
 
 func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	type WishlistEntry struct {
-		Id uint64 `json:"id"`
-		Seq uint64 `json:"seq"`
-		Description string `json:"description"`
-		Source string `json:"source"`
-		Cost string `json:"cost"`
-		OwnerNotes *string `json:"owner_notes"`
-		BuyerNotes *string `json:"buyer_notes"`
+		Id          uint64  `json:"id"`
+		Seq         uint64  `json:"seq"`
+		Description string  `json:"description"`
+		Source      string  `json:"source"`
+		Cost        string  `json:"cost"`
+		OwnerNotes  *string `json:"owner_notes"`
+		BuyerNotes  *string `json:"buyer_notes"`
 	}
-	
+
 	type WishlistGetResponse struct {
-		Headers WishlistEntry `json:"headers"`
+		Headers WishlistEntry   `json:"headers"`
 		Entries []WishlistEntry `json:"entries"`
 	}
 
 	var queryUserId uint64
-	
+
 	userStr := r.URL.Query().Get("userId")
 	if userStr != "" {
 		userId, err := strconv.ParseUint(userStr, 10, 64)
@@ -354,7 +354,7 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 	} else {
 		queryUserId = id
 	}
-		
+
 	// Make sure the request body stream is closed.
 	defer r.Body.Close()
 
@@ -376,7 +376,7 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 	for rows.Next() {
 		response.Entries = append(response.Entries, WishlistEntry{})
 		entry := &response.Entries[len(response.Entries)-1]
-		
+
 		err = rows.Scan(&entry.Id, &entry.Seq, &entry.Description, &entry.Source, &entry.Cost,
 			&entry.OwnerNotes, &entry.BuyerNotes)
 		if err != nil {
@@ -385,9 +385,9 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 		}
 
 		// requesting our own wishlist, we don't get to see the buyer notes
-		if queryUserId == id {                                             
-			entry.BuyerNotes = nil                                     
-		}                                                                  
+		if queryUserId == id {
+			entry.BuyerNotes = nil
+		}
 	}
 	err = rows.Err()
 	if err != nil {
@@ -395,20 +395,19 @@ func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.Respons
 		return
 	}
 
-	
 	// Encode the data and write it to the response
 	encoder := json.NewEncoder(w)
-	if err := encoder.Encode(response); err != nil {                  
-        http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := encoder.Encode(response); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
 func handleWishlistPost(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	type WishlistEntry struct {
 		Description string `json:"description"`
-		Source string `json:"source"`
-		Cost string `json:"cost"`
-		OwnerNotes string `json:"owner_notes"`
+		Source      string `json:"source"`
+		Cost        string `json:"cost"`
+		OwnerNotes  string `json:"owner_notes"`
 	}
 
 	type WishlistResponse struct {
@@ -422,7 +421,7 @@ func handleWishlistPost(id uint64, logger *log.Logger, db *sql.DB, w http.Respon
 		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
 		return
 	}
-		
+
 	// Make sure the request body stream is closed.
 	defer r.Body.Close()
 
@@ -449,9 +448,9 @@ func handleWishlistPost(id uint64, logger *log.Logger, db *sql.DB, w http.Respon
 
 	// Encode the data and write it to the response
 	encoder := json.NewEncoder(w)
-	if err := encoder.Encode(response); err != nil {                  
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-	}	
+	if err := encoder.Encode(response); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
@@ -477,7 +476,7 @@ func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.Resp
 		return
 	}
 	// Defer a rollback in case of errors, this will be skipped if Commit() is successful
-	defer tx.Rollback()	
+	defer tx.Rollback()
 
 	// Generate the correct number of placeholders (?, ?, ?...)
 	placeholders := make([]string, len(reqBody.Ids))
@@ -485,7 +484,7 @@ func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.Resp
 		placeholders[i] = "?"
 	}
 	placeholdersStr := strings.Join(placeholders, ", ")
-	
+
 	// Prepare a statement for insertion within the transaction
 	selectStmt, err := tx.Prepare(
 		fmt.Sprintf("SELECT COUNT(*) FROM wishlist WHERE id IN (%s) AND user_id != ?", placeholdersStr))
@@ -495,12 +494,12 @@ func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.Resp
 	}
 	defer selectStmt.Close() // Close the statement when done
 
-	args := make([]interface{}, len(reqBody.Ids) + 1)
+	args := make([]interface{}, len(reqBody.Ids)+1)
 	for i, id := range reqBody.Ids {
 		args[i] = id
 	}
 	args[len(reqBody.Ids)] = id
-	
+
 	var count uint
 	selectStmt.QueryRow(args...).Scan(&count)
 	if err != nil {
@@ -512,7 +511,7 @@ func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.Resp
 		http.Error(w, "Attempt to delete wishlist rows not owned by user", http.StatusUnauthorized)
 		return
 	}
-	
+
 	deleteStmt, err := tx.Prepare(
 		fmt.Sprintf("DELETE FROM wishlist WHERE id IN (%s) AND user_id == ?", placeholdersStr))
 	if err != nil {
@@ -532,7 +531,7 @@ func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.Resp
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	rowsAffected, err := result.RowsAffected()
 	if err != nil && rowsAffected == 0 {
 		http.Error(w, "non-existent row", http.StatusNotFound)
@@ -542,13 +541,13 @@ func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.Resp
 
 func handleWishlistPatch(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	type WishlistPatch struct {
-		Id uint64 `json:"id"`
-		Seq uint64 `json:"seq"`		
+		Id          uint64  `json:"id"`
+		Seq         uint64  `json:"seq"`
 		Description *string `json:"description"`
-		Source *string `json:"source"`
-		Cost *string `json:"cost"`
-		OwnerNotes *string `json:"owner_notes"`
-		BuyerNotes *string `json:"buyer_notes"`
+		Source      *string `json:"source"`
+		Cost        *string `json:"cost"`
+		OwnerNotes  *string `json:"owner_notes"`
+		BuyerNotes  *string `json:"buyer_notes"`
 	}
 
 	var req WishlistPatch
@@ -558,7 +557,7 @@ func handleWishlistPatch(id uint64, logger *log.Logger, db *sql.DB, w http.Respo
 		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
 		return
 	}
-		
+
 	// Make sure the request body stream is closed.
 	defer r.Body.Close()
 
@@ -596,7 +595,7 @@ func handleWishlistPatch(id uint64, logger *log.Logger, db *sql.DB, w http.Respo
 			req.Seq, sequenceNumber), http.StatusConflict)
 		return
 	}
-	
+
 	if uint64(rowUserId) == id {
 		if req.BuyerNotes != nil {
 			http.Error(w, "wishlist owner can not edit buyer notes", http.StatusBadRequest)
@@ -619,15 +618,15 @@ func handleWishlistPatch(id uint64, logger *log.Logger, db *sql.DB, w http.Respo
 
 	var fields = []struct {
 		RequestField *string
-		DbColumn string
+		DbColumn     string
 	}{
 		{req.Description, "description"},
 		{req.Source, "source"},
 		{req.Cost, "cost"},
 		{req.OwnerNotes, "owner_notes"},
 		{req.BuyerNotes, "buyer_notes"},
-	}		
-	
+	}
+
 	var arguments []interface{}
 	var fieldsToSet []string
 	for _, mapping := range fields {
@@ -637,8 +636,8 @@ func handleWishlistPatch(id uint64, logger *log.Logger, db *sql.DB, w http.Respo
 		}
 	}
 	fieldsToSet = append(fieldsToSet, "sequence_number = ?")
-	arguments = append(arguments, req.Seq + 1)
-	
+	arguments = append(arguments, req.Seq+1)
+
 	arguments = append(arguments, req.Id)
 
 	preparedStr := fmt.Sprintf("UPDATE wishlist SET %s WHERE id = ?", strings.Join(fieldsToSet, ", "))
@@ -660,7 +659,7 @@ func handleWishlistPatch(id uint64, logger *log.Logger, db *sql.DB, w http.Respo
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}	
+	}
 }
 
 func handleWishlist(logger *log.Logger, db *sql.DB) http.HandlerFunc {
@@ -674,7 +673,7 @@ func handleWishlist(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 			http.Error(w, "", http.StatusUnsupportedMediaType)
 			return
 		}
-		
+
 		if r.Method == http.MethodGet {
 			handleWishlistGet(id, logger, db, w, r)
 		} else if r.Method == http.MethodPost {
@@ -701,30 +700,30 @@ func handleUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 			http.Error(w, "", http.StatusUnsupportedMediaType)
 			return
 		}
-		
+
 		if r.Method != http.MethodGet {
 			http.Error(w, "", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		type UsersResponse struct {
 			Entries []User `json:"users"`
 		}
-		
+
 		stmt, err := db.Prepare("SELECT id,first_name,last_name FROM users")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer stmt.Close()
-		
+
 		rows, err := stmt.Query()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		defer rows.Close()
-		
+
 		var response UsersResponse
 		for rows.Next() {
 			response.Entries = append(response.Entries, User{})
@@ -744,7 +743,7 @@ func handleUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 
 		// Encode the data and write it to the response
 		encoder := json.NewEncoder(w)
-		if err := encoder.Encode(response); err != nil {    
+		if err := encoder.Encode(response); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
@@ -774,7 +773,7 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	if err != nil {
 		logger.Fatalf("Error creating users table: %v", err)
 	}
-	logger.Println("Table 'users' created or already exists.")	
+	logger.Println("Table 'users' created or already exists.")
 
 	sqlStmt = `
     PRAGMA foreign_keys = ON;
@@ -792,7 +791,7 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	if err != nil {
 		logger.Fatalf("Error creating sessions table: %v", err)
 	}
-	logger.Println("Table 'sessions' created or already exists.")	
+	logger.Println("Table 'sessions' created or already exists.")
 
 	sqlStmt = `
 	CREATE TABLE IF NOT EXISTS wishlist (
@@ -812,7 +811,7 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	if err != nil {
 		logger.Fatalf("Error creating wishlist table: %v", err)
 	}
-	logger.Println("Table 'wishlist' created or already exists.")	
+	logger.Println("Table 'wishlist' created or already exists.")
 
 	sqlStmt = `
 	CREATE INDEX IF NOT EXISTS idx_wishlist_user ON wishlist (user_id)
@@ -821,16 +820,16 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	if err != nil {
 		logger.Fatalf("Error creating wishlist index: %v", err)
 	}
-	logger.Println("Index 'idx_wishlist_user' created or already exists.")	
-	
+	logger.Println("Index 'idx_wishlist_user' created or already exists.")
+
 	return db
 }
 
 func addRoutes(
-	mux                 *http.ServeMux,
-	logger              *log.Logger,
-	config              *Config,
-	db                  *sql.DB,
+	mux *http.ServeMux,
+	logger *log.Logger,
+	config *Config,
+	db *sql.DB,
 ) {
 	mux.Handle("/api/session", handleSession(logger, db))
 	mux.Handle("/api/signup", handleSignup(logger, db))
@@ -843,7 +842,7 @@ var requestIdCounter atomic.Uint64
 func loggingMiddleware(logger *log.Logger, handler http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := requestIdCounter.Add(1)
-		
+
 		logger.Printf("%d %s %s %s START", id, r.RemoteAddr, r.Method, r.URL.Path)
 		lrw := negroni.NewResponseWriter(w)
 		handler.ServeHTTP(lrw, r)
@@ -857,7 +856,7 @@ func loggingMiddleware(logger *log.Logger, handler http.Handler) http.HandlerFun
 func NewServer(
 	logger *log.Logger,
 	config *Config,
-	db * sql.DB,
+	db *sql.DB,
 ) http.Handler {
 	mux := http.NewServeMux()
 	addRoutes(
@@ -883,14 +882,14 @@ func run(ctx context.Context, w io.Writer, args []string) error {
 
 	// default values
 	config := Config{DbPath: "wishlist.db", HostName: "localhost", Port: "80"}
-	
+
 	err = json.Unmarshal(configFile, &config)
 	if err != nil {
 		log.Fatalf("Error unmarshaling config JSON: %v", err)
 	}
-	
+
 	db := initDb(logger, &config)
-	
+
 	srv := NewServer(logger, &config, db)
 	httpServer := &http.Server{
 		Addr:    net.JoinHostPort(config.HostName, config.Port),
@@ -908,7 +907,7 @@ func run(ctx context.Context, w io.Writer, args []string) error {
 		defer wg.Done()
 		<-ctx.Done()
 		shutdownCtx := context.Background()
-		shutdownCtx, cancel := context.WithTimeout(shutdownCtx, 10 * time.Second)
+		shutdownCtx, cancel := context.WithTimeout(shutdownCtx, 10*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			fmt.Fprintf(os.Stderr, "error shutting down http server: %s\n", err)
