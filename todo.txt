@@ -4,10 +4,18 @@ TODOs
 core functionality
 ------------------
 * invite links
+    * server config file with admin user + hashed password
+    * command to generate admin config
+    * new db table mapping user to invite link
+    * API to generate invite links
+    * client-side UI to generate invite links
+    * client-side UI to list invite links
+    * changes to server-side signup to use invite links
+    * changes to client-side signup UI to require invite links
+    * disable signup without invite link
 * client & server side form input validation
 * password requirements (ascii text, length, complexity)
 * release build
-* configuration file
 * client-side URL router
 * changing passwords
 * email activation
@@ -18,7 +26,6 @@ hardening
 * database field size limits
 * user-level quotas
 * API ratelimiting
-* API performance tests
 
 UI/UX improvements
 ------------------
@@ -34,6 +41,7 @@ UI/UX improvements
 * mobile UI
 * dynamic client-side update (listener API)
 * client-side error handling design
+* click-to-exit + exit button for modal dialogs
 
 dev/hygiene
 -----------
@@ -48,6 +56,8 @@ dev/hygiene
 * linter for frontend & backend
 * github actions for PRs
 * security review
+    * walk through https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html etc
 * static analysis tool
 * improved logging
 * logrotate support
+* API performance tests

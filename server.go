@@ -9,6 +9,7 @@ import (
 	"errors"
     "fmt"
     "io"
+    "io/ioutil"	
     "log"
     "net"					
     "net/http"
@@ -27,9 +28,9 @@ import (
 )
 
 type Config struct {
-	DbPath string
-	Host string
-	Port string
+	DbPath string `json:"db_path"`
+	HostName string `json:"host_name"`
+	Port string `json:"port"`
 }
 
 const sessionCookieKey = "wishlist_session_id"
@@ -875,17 +876,24 @@ func run(ctx context.Context, w io.Writer, args []string) error {
 
 	logger := log.Default()
 
-	config := &Config{
-		DbPath: "./example.db",
-		Host: "localhost",
-		Port: "8080",
+	configFile, err := ioutil.ReadFile("config.json")
+	if err != nil {
+		logger.Fatalf("Error reading config file: %v", err)
 	}
 
-	db := initDb(logger, config)
+	// default values
+	config := Config{DbPath: "wishlist.db", HostName: "localhost", Port: "80"}
 	
-	srv := NewServer(logger, config, db)
+	err = json.Unmarshal(configFile, &config)
+	if err != nil {
+		log.Fatalf("Error unmarshaling config JSON: %v", err)
+	}
+	
+	db := initDb(logger, &config)
+	
+	srv := NewServer(logger, &config, db)
 	httpServer := &http.Server{
-		Addr:    net.JoinHostPort(config.Host, config.Port),
+		Addr:    net.JoinHostPort(config.HostName, config.Port),
 		Handler: srv,
 	}
 	go func() {
