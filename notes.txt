@@ -1,0 +1,8 @@
+protoc regeneration:
+--------------------
+protoc --go_out=./admin_rpc --go_opt=paths=source_relative --go-grpc_out=./admin_rpc --go-grpc_opt=paths=source_relative admin.proto
+
+
+invite code generation:
+-----------------------
+grpcurl -plaintext unix:////Users/eric/dev/wishlist/wishlist_admin.sock admin.WishlistAdmin.GenerateInviteCode

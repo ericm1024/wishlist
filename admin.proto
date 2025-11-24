@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+package admin;
+
+option go_package = "./admin_rpc";
+
+service WishlistAdmin {
+  rpc GenerateInviteCode (google.protobuf.Empty) returns (IvniteCodeReply) {}
+}
+
+message IvniteCodeReply {
+  string code = 1;
+}

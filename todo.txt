@@ -4,9 +4,6 @@ TODOs
 core functionality
 ------------------
 * invite links
-    * server config file with admin user + hashed password
-    * command to generate admin config
-    * new db table mapping user to invite link
     * API to generate invite links
     * client-side UI to generate invite links
     * client-side UI to list invite links

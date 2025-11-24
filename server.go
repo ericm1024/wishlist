@@ -19,18 +19,24 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
+	"github.com/ericm1024/wishlist/admin_rpc"
 	"github.com/matthewhartstonge/argon2"
+	grpc "google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/urfave/negroni"
 )
 
 type Config struct {
-	DbPath   string `json:"db_path"`
-	HostName string `json:"host_name"`
-	Port     string `json:"port"`
+	DbPath          string `json:"db_path"`
+	HostName        string `json:"host_name"`
+	Port            string `json:"port"`
+	AdminSocketPath string `json:"admin_socket_path"`
 }
 
 const sessionCookieKey = "wishlist_session_id"
@@ -91,10 +97,10 @@ func createSession(logger *log.Logger, db *sql.DB, userId int64, userAgent strin
 	sessionCookie := make([]byte, 32)
 	rand.Read(sessionCookie)
 
-	maxAgeSeconds := 7 * 24 * 60 * 60
+	maxAgeHours := 7 * 24
 
 	// 7 day session liveness
-	expiryTime := time.Now().Add(time.Duration(maxAgeSeconds) * time.Second)
+	expiryTime := time.Now().Add(time.Duration(maxAgeHours) * time.Hour)
 
 	_, err = stmt.Exec(sessionCookie, userId, expiryTime, userAgent)
 	if err != nil {
@@ -782,7 +788,7 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 		session_cookie BLOB PRIMARY KEY UNIQUE,
         id INTEGER NOT NULL,
         creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-        expiry_time DATETIME,
+        expiry_time DATETIME NOT NULL,
         user_agent TEXT,
         FOREIGN KEY (id) REFERENCES users (id) ON DELETE CASCADE
 	);
@@ -821,6 +827,31 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 		logger.Fatalf("Error creating wishlist index: %v", err)
 	}
 	logger.Println("Index 'idx_wishlist_user' created or already exists.")
+
+	// user_id may be null if code was created via admin rpc
+	sqlStmt = `
+	CREATE TABLE IF NOT EXISTS invite_codes (
+        invite_code BLOB PRIMARY KEY UNIQUE,
+        user_id INTEGER,
+        creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expiry_time DATETIME NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+	);
+	`
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		logger.Fatalf("Error creating invite_codes table: %v", err)
+	}
+	logger.Println("Table 'invite_codes' created or already exists.")
+
+	sqlStmt = `
+	CREATE INDEX IF NOT EXISTS idx_invite_codes_user ON invite_codes (user_id)
+	`
+	_, err = db.Exec(sqlStmt)
+	if err != nil {
+		logger.Fatalf("Error creating wishlist index: %v", err)
+	}
+	logger.Println("Index 'idx_invite_codes_user' created or already exists.")
 
 	return db
 }
@@ -869,6 +900,35 @@ func NewServer(
 	return handler
 }
 
+type adminGrpcServer struct {
+	admin_rpc.UnimplementedWishlistAdminServer
+	Logger *log.Logger
+	Db     *sql.DB
+}
+
+func (s *adminGrpcServer) GenerateInviteCode(ctx context.Context, in *emptypb.Empty) (*admin_rpc.IvniteCodeReply, error) {
+
+	stmt, err := s.Db.Prepare("INSERT INTO invite_codes(invite_code, expiry_time) VALUES(?, ?)")
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	// Note that no error handling is necessary, as Read always succeeds.
+	inviteCode := make([]byte, 32)
+	rand.Read(inviteCode)
+
+	// invite codes good for 7 days
+	expiryTime := time.Now().Add(time.Duration(7*24) * time.Hour)
+
+	_, err = stmt.Exec(inviteCode, expiryTime)
+	if err != nil {
+		return nil, err
+	}
+
+	return &admin_rpc.IvniteCodeReply{Code: base64.URLEncoding.EncodeToString(inviteCode)}, nil
+}
+
 func run(ctx context.Context, w io.Writer, args []string) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
@@ -881,11 +941,24 @@ func run(ctx context.Context, w io.Writer, args []string) error {
 	}
 
 	// default values
-	config := Config{DbPath: "wishlist.db", HostName: "localhost", Port: "80"}
+	config := Config{DbPath: "wishlist.db", HostName: "localhost", Port: "80",
+		AdminSocketPath: "wishlist_admin.sock"}
 
 	err = json.Unmarshal(configFile, &config)
 	if err != nil {
 		log.Fatalf("Error unmarshaling config JSON: %v", err)
+	}
+
+	if err := os.RemoveAll(config.AdminSocketPath); err != nil {
+		log.Fatal(err)
+	}
+
+	// do this early since we have to muck with the umask
+	oldUmask := syscall.Umask(0077) // Sets permissions to 0700 (owner rwx)
+	lis, err := net.Listen("unix", config.AdminSocketPath)
+	syscall.Umask(oldUmask) // Restore origial umask
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
 	}
 
 	db := initDb(logger, &config)
@@ -896,13 +969,13 @@ func run(ctx context.Context, w io.Writer, args []string) error {
 		Handler: srv,
 	}
 	go func() {
-		logger.Printf("listening on %s\n", httpServer.Addr)
+		logger.Printf("http listening on %s\n", httpServer.Addr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(os.Stderr, "error listening and serving: %s\n", err)
 		}
 	}()
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		<-ctx.Done()
@@ -913,6 +986,24 @@ func run(ctx context.Context, w io.Writer, args []string) error {
 			fmt.Fprintf(os.Stderr, "error shutting down http server: %s\n", err)
 		}
 	}()
+
+	grpcServer := grpc.NewServer()
+	admin_rpc.RegisterWishlistAdminServer(grpcServer, &adminGrpcServer{Logger: logger, Db: db})
+	reflection.Register(grpcServer)
+	go func() {
+		log.Printf("grpc server listening at %v", lis.Addr())
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Fatalf("failed to serve: %v", err)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		<-ctx.Done()
+		// xxx: try to gracefully stop?
+		grpcServer.Stop()
+	}()
+
 	wg.Wait()
 	return nil
 }
