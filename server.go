@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/mail"
 	"os"
 	"os/signal"
 	"strconv"
@@ -264,34 +265,46 @@ func handleSession(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+// The struct that represents the expected JSON body.
+type SignupRequest struct {
+	FirstName string `json:"first"`
+	LastName  string `json:"last"`
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+}
 
-	// The struct that represents the expected JSON body.
-	type SignupRequest struct {
-		FirstName string `json:"first"`
-		LastName  string `json:"last"`
-		Email     string `json:"email"`
-		Password  string `json:"password"`
-	}
+func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 1. Enforce the request method (e.g., POST).
 		if r.Method != http.MethodPost {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			http.Error(w, "", http.StatusMethodNotAllowed)
 			return
 		}
 
 		// 2. Enforce the Content-Type header.
 		if r.Header.Get("Content-Type") != "application/json" {
-			http.Error(w, "Unsupported Media Type", http.StatusUnsupportedMediaType)
+			http.Error(w, "", http.StatusUnsupportedMediaType)
 			return
 		}
 
 		// 3. Decode the request body into a Go struct.
 		var reqBody SignupRequest
 		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&reqBody); err != nil {
-			http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+			http.Error(w, "malformed json", http.StatusBadRequest)
+			return
+		}
+
+		if reqBody.FirstName == "" || reqBody.LastName == "" || reqBody.Email == "" || reqBody.Password == "" {
+			http.Error(w, "missing fields", http.StatusBadRequest)
+			return
+		}
+
+		_, err := mail.ParseAddress(reqBody.Email)
+		if err != nil {
+			http.Error(w, "missing fields", http.StatusBadRequest)
 			return
 		}
 
@@ -755,14 +768,12 @@ func handleUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func initDb(logger *log.Logger, config *Config) *sql.DB {
+func initDb(logger *log.Logger, dbPath string) *sql.DB {
 	// Open (or create) the SQLite database file
-	db, err := sql.Open("sqlite3", config.DbPath)
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		logger.Fatalf("Error opening database: %v", err)
 	}
-	// TODO: when to do this
-	//defer db.Close() // Ensure the database connection is closed when main exits
 
 	// Create users table
 	sqlStmt := `
@@ -779,7 +790,6 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	if err != nil {
 		logger.Fatalf("Error creating users table: %v", err)
 	}
-	logger.Println("Table 'users' created or already exists.")
 
 	sqlStmt = `
     PRAGMA foreign_keys = ON;
@@ -797,7 +807,6 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	if err != nil {
 		logger.Fatalf("Error creating sessions table: %v", err)
 	}
-	logger.Println("Table 'sessions' created or already exists.")
 
 	sqlStmt = `
 	CREATE TABLE IF NOT EXISTS wishlist (
@@ -817,7 +826,6 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	if err != nil {
 		logger.Fatalf("Error creating wishlist table: %v", err)
 	}
-	logger.Println("Table 'wishlist' created or already exists.")
 
 	sqlStmt = `
 	CREATE INDEX IF NOT EXISTS idx_wishlist_user ON wishlist (user_id)
@@ -826,7 +834,6 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	if err != nil {
 		logger.Fatalf("Error creating wishlist index: %v", err)
 	}
-	logger.Println("Index 'idx_wishlist_user' created or already exists.")
 
 	// user_id may be null if code was created via admin rpc
 	sqlStmt = `
@@ -842,7 +849,6 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	if err != nil {
 		logger.Fatalf("Error creating invite_codes table: %v", err)
 	}
-	logger.Println("Table 'invite_codes' created or already exists.")
 
 	sqlStmt = `
 	CREATE INDEX IF NOT EXISTS idx_invite_codes_user ON invite_codes (user_id)
@@ -851,7 +857,6 @@ func initDb(logger *log.Logger, config *Config) *sql.DB {
 	if err != nil {
 		logger.Fatalf("Error creating wishlist index: %v", err)
 	}
-	logger.Println("Index 'idx_invite_codes_user' created or already exists.")
 
 	return db
 }
@@ -961,7 +966,8 @@ func run(ctx context.Context, w io.Writer, args []string) error {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	db := initDb(logger, &config)
+	db := initDb(logger, config.DbPath)
+	defer db.Close()
 
 	srv := NewServer(logger, &config, db)
 	httpServer := &http.Server{

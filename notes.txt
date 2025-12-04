@@ -6,3 +6,9 @@ protoc --go_out=./admin_rpc --go_opt=paths=source_relative --go-grpc_out=./admin
 invite code generation:
 -----------------------
 grpcurl -plaintext unix:////Users/eric/dev/wishlist/wishlist_admin.sock admin.WishlistAdmin.GenerateInviteCode
+
+
+coverage report:
+----------------
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out -o coverage.html
