@@ -123,96 +123,100 @@ func createSession(logger *log.Logger, db *sql.DB, userId int64, userAgent strin
 	return nil
 }
 
-func handleSessionPost(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
-	// The struct that represents the expected JSON body.
-	type LoginRequest struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
+func handleSessionPost(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// The struct that represents the expected JSON body.
+		type LoginRequest struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
 
-	if r.Header.Get("Content-Type") != "application/json" {
-		http.Error(w, "", http.StatusUnsupportedMediaType)
-		return
-	}
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "", http.StatusUnsupportedMediaType)
+			return
+		}
 
-	// 3. Decode the request body into a Go struct.
-	var reqBody LoginRequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&reqBody); err != nil {
-		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
-		return
-	}
+		// 3. Decode the request body into a Go struct.
+		var reqBody LoginRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&reqBody); err != nil {
+			http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+			return
+		}
 
-	if reqBody.Email == "" || reqBody.Password == "" {
-		http.Error(w, "Bad Request: Missing fields", http.StatusBadRequest)
-		return
-	}
+		if reqBody.Email == "" || reqBody.Password == "" {
+			http.Error(w, "Bad Request: Missing fields", http.StatusBadRequest)
+			return
+		}
 
-	// Make sure the request body stream is closed.
-	defer r.Body.Close()
+		// Make sure the request body stream is closed.
+		defer r.Body.Close()
 
-	stmt, err := db.Prepare("SELECT password_hash,id,first_name,last_name FROM users WHERE email = ?")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer stmt.Close()
+		stmt, err := db.Prepare("SELECT password_hash,id,first_name,last_name FROM users WHERE email = ?")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
 
-	var passwordHash string
-	var userId int64
-	var firstName string
-	var lastName string
-	err = stmt.QueryRow(reqBody.Email).Scan(&passwordHash, &userId, &firstName, &lastName)
-	if err != nil {
-		// differentiate between DB issue and unknown error?
-		http.Error(w, "invalid username or password", http.StatusUnauthorized)
-		return
-	}
+		var passwordHash string
+		var userId int64
+		var firstName string
+		var lastName string
+		err = stmt.QueryRow(reqBody.Email).Scan(&passwordHash, &userId, &firstName, &lastName)
+		if err != nil {
+			// differentiate between DB issue and unknown error?
+			http.Error(w, "invalid username or password", http.StatusUnauthorized)
+			return
+		}
 
-	// TODO: hash either way to prevent timing attacks to find valid emails?
+		// TODO: hash either way to prevent timing attacks to find valid emails?
 
-	ok, err := argon2.VerifyEncoded([]byte(reqBody.Password), []byte(passwordHash))
-	if err != nil || !ok {
-		http.Error(w, "invalid username or password", http.StatusUnauthorized)
-		return
-	}
+		ok, err := argon2.VerifyEncoded([]byte(reqBody.Password), []byte(passwordHash))
+		if err != nil || !ok {
+			http.Error(w, "invalid username or password", http.StatusUnauthorized)
+			return
+		}
 
-	err = createSession(logger, db, userId, r.Header.Get("User-Agent"), w)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("error creating session %v", err), http.StatusInternalServerError)
-		return
-	}
+		err = createSession(logger, db, userId, r.Header.Get("User-Agent"), w)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error creating session %v", err), http.StatusInternalServerError)
+			return
+		}
 
-	response := User{uint64(userId), firstName, lastName}
-	encoder := json.NewEncoder(w)
-	if err := encoder.Encode(response); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		response := User{uint64(userId), firstName, lastName}
+		encoder := json.NewEncoder(w)
+		if err := encoder.Encode(response); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
 
-func handleSessionDelete(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
-	cookie := extractCookie(r)
-	if cookie == nil {
-		return
-	}
+func handleSessionDelete(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cookie := extractCookie(r)
+		if cookie == nil {
+			return
+		}
 
-	stmt, err := db.Prepare("DELETE FROM sessions WHERE session_cookie = ? RETURNING id ")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer stmt.Close()
+		stmt, err := db.Prepare("DELETE FROM sessions WHERE session_cookie = ? RETURNING id ")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
 
-	var id int64
-	err = stmt.QueryRow(cookie).Scan(&id)
-	if err != nil && err != sql.ErrNoRows {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+		var id int64
+		err = stmt.QueryRow(cookie).Scan(&id)
+		if err != nil && err != sql.ErrNoRows {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-	if err != sql.ErrNoRows {
-		logger.Printf("deleting session for user %d", id)
+		if err != sql.ErrNoRows {
+			logger.Printf("deleting session for user %d", id)
+		}
 	}
 }
 
@@ -222,46 +226,27 @@ type User struct {
 	LastName  string `json:"last"`
 }
 
-func handleSessionGet(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
-	var user User
-	err, id := authenticateUser(logger, db, w, r)
-	if err != nil {
-		return
-	}
-	user.Id = id
+func handleSessionGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter, *http.Request, uint64) {
+	return func(w http.ResponseWriter, r *http.Request, userId uint64) {
+		user := User{Id: userId}
 
-	stmt, err := db.Prepare("SELECT first_name,last_name FROM users WHERE id = ?")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer stmt.Close()
+		stmt, err := db.Prepare("SELECT first_name,last_name FROM users WHERE id = ?")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
 
-	err = stmt.QueryRow(id).Scan(&user.FirstName, &user.LastName)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	encoder := json.NewEncoder(w)
-	if err := encoder.Encode(user); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func handleSession(logger *log.Logger, db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			handleSessionPost(logger, db, w, r)
-		} else if r.Method == http.MethodDelete {
-			handleSessionDelete(logger, db, w, r)
-		} else if r.Method == http.MethodGet {
-			handleSessionGet(logger, db, w, r)
-		} else {
-			http.Error(w, "", http.StatusMethodNotAllowed)
+		err = stmt.QueryRow(userId).Scan(&user.FirstName, &user.LastName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
+		encoder := json.NewEncoder(w)
+		if err := encoder.Encode(user); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
 
@@ -274,21 +259,12 @@ type SignupRequest struct {
 }
 
 func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 1. Enforce the request method (e.g., POST).
-		if r.Method != http.MethodPost {
-			http.Error(w, "", http.StatusMethodNotAllowed)
-			return
-		}
-
-		// 2. Enforce the Content-Type header.
 		if r.Header.Get("Content-Type") != "application/json" {
 			http.Error(w, "", http.StatusUnsupportedMediaType)
 			return
 		}
 
-		// 3. Decode the request body into a Go struct.
 		var reqBody SignupRequest
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -344,348 +320,101 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func handleWishlistGet(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
-	type WishlistEntry struct {
-		Id          uint64  `json:"id"`
-		Seq         uint64  `json:"seq"`
-		Description string  `json:"description"`
-		Source      string  `json:"source"`
-		Cost        string  `json:"cost"`
-		OwnerNotes  *string `json:"owner_notes"`
-		BuyerNotes  *string `json:"buyer_notes"`
-	}
+func handleWishlistGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter, *http.Request, uint64) {
+	return func(w http.ResponseWriter, r *http.Request, userId uint64) {
+		type WishlistEntry struct {
+			Id          uint64  `json:"id"`
+			Seq         uint64  `json:"seq"`
+			Description string  `json:"description"`
+			Source      string  `json:"source"`
+			Cost        string  `json:"cost"`
+			OwnerNotes  *string `json:"owner_notes"`
+			BuyerNotes  *string `json:"buyer_notes"`
+		}
 
-	type WishlistGetResponse struct {
-		Headers WishlistEntry   `json:"headers"`
-		Entries []WishlistEntry `json:"entries"`
-	}
+		type WishlistGetResponse struct {
+			Headers WishlistEntry   `json:"headers"`
+			Entries []WishlistEntry `json:"entries"`
+		}
 
-	var queryUserId uint64
-
-	userStr := r.URL.Query().Get("userId")
-	if userStr != "" {
-		userId, err := strconv.ParseUint(userStr, 10, 64)
-		if err != nil {
-			http.Error(w, "missing or malformed user parameter", http.StatusBadRequest)
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "", http.StatusUnsupportedMediaType)
 			return
 		}
-		queryUserId = userId
-	} else {
-		queryUserId = id
-	}
 
-	// Make sure the request body stream is closed.
-	defer r.Body.Close()
+		var queryUserId uint64
+		userStr := r.URL.Query().Get("userId")
+		if userStr != "" {
+			urlUserId, err := strconv.ParseUint(userStr, 10, 64)
+			if err != nil {
+				http.Error(w, "missing or malformed user parameter", http.StatusBadRequest)
+				return
+			}
+			queryUserId = urlUserId
+		} else {
+			queryUserId = userId
+		}
 
-	stmt, err := db.Prepare("SELECT id,sequence_number,description,source,cost,owner_notes,buyer_notes FROM wishlist WHERE user_id = ?")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer stmt.Close()
+		// Make sure the request body stream is closed.
+		defer r.Body.Close()
 
-	rows, err := stmt.Query(queryUserId)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
+		stmt, err := db.Prepare("SELECT id,sequence_number,description,source,cost,owner_notes,buyer_notes FROM wishlist WHERE user_id = ?")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
 
-	var response WishlistGetResponse
-	for rows.Next() {
-		response.Entries = append(response.Entries, WishlistEntry{})
-		entry := &response.Entries[len(response.Entries)-1]
+		rows, err := stmt.Query(queryUserId)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
 
-		err = rows.Scan(&entry.Id, &entry.Seq, &entry.Description, &entry.Source, &entry.Cost,
-			&entry.OwnerNotes, &entry.BuyerNotes)
+		var response WishlistGetResponse
+		for rows.Next() {
+			response.Entries = append(response.Entries, WishlistEntry{})
+			entry := &response.Entries[len(response.Entries)-1]
+
+			err = rows.Scan(&entry.Id, &entry.Seq, &entry.Description, &entry.Source, &entry.Cost,
+				&entry.OwnerNotes, &entry.BuyerNotes)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// requesting our own wishlist, we don't get to see the buyer notes
+			if queryUserId == userId {
+				entry.BuyerNotes = nil
+			}
+		}
+		err = rows.Err()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// requesting our own wishlist, we don't get to see the buyer notes
-		if queryUserId == id {
-			entry.BuyerNotes = nil
+		// Encode the data and write it to the response
+		encoder := json.NewEncoder(w)
+		if err := encoder.Encode(response); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-	}
-	err = rows.Err()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Encode the data and write it to the response
-	encoder := json.NewEncoder(w)
-	if err := encoder.Encode(response); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func handleWishlistPost(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
-	type WishlistEntry struct {
-		Description string `json:"description"`
-		Source      string `json:"source"`
-		Cost        string `json:"cost"`
-		OwnerNotes  string `json:"owner_notes"`
-	}
+func handleWishlistPost(logger *log.Logger, db *sql.DB) func(http.ResponseWriter, *http.Request, uint64) {
+	return func(w http.ResponseWriter, r *http.Request, id uint64) {
 
-	type WishlistResponse struct {
-		Id uint64 `json:"id"`
-	}
-
-	var reqBody WishlistEntry
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&reqBody); err != nil {
-		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
-		return
-	}
-
-	// Make sure the request body stream is closed.
-	defer r.Body.Close()
-
-	stmt, err := db.Prepare("INSERT INTO wishlist(user_id, description, source, cost, owner_notes) VALUES(?, ?, ?, ?, ?)")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer stmt.Close()
-
-	result, err := stmt.Exec(id, reqBody.Description, reqBody.Source, reqBody.Cost, reqBody.OwnerNotes)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	lastID, err := result.LastInsertId()
-	if err != nil {
-		http.Error(w, fmt.Sprintf("error getting id: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	response := WishlistResponse{Id: uint64(lastID)}
-
-	// Encode the data and write it to the response
-	encoder := json.NewEncoder(w)
-	if err := encoder.Encode(response); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func handleWishlistDelete(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
-	type DeleteRequest struct {
-		Ids []uint64 `json:"ids"`
-	}
-
-	var reqBody DeleteRequest
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&reqBody); err != nil {
-		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
-		return
-	}
-
-	// Make sure the request body stream is closed.
-	defer r.Body.Close()
-
-	// Start a transaction
-	tx, err := db.Begin()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// Defer a rollback in case of errors, this will be skipped if Commit() is successful
-	defer tx.Rollback()
-
-	// Generate the correct number of placeholders (?, ?, ?...)
-	placeholders := make([]string, len(reqBody.Ids))
-	for i := range reqBody.Ids {
-		placeholders[i] = "?"
-	}
-	placeholdersStr := strings.Join(placeholders, ", ")
-
-	// Prepare a statement for insertion within the transaction
-	selectStmt, err := tx.Prepare(
-		fmt.Sprintf("SELECT COUNT(*) FROM wishlist WHERE id IN (%s) AND user_id != ?", placeholdersStr))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer selectStmt.Close() // Close the statement when done
-
-	args := make([]interface{}, len(reqBody.Ids)+1)
-	for i, id := range reqBody.Ids {
-		args[i] = id
-	}
-	args[len(reqBody.Ids)] = id
-
-	var count uint
-	selectStmt.QueryRow(args...).Scan(&count)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if count != 0 {
-		http.Error(w, "Attempt to delete wishlist rows not owned by user", http.StatusUnauthorized)
-		return
-	}
-
-	deleteStmt, err := tx.Prepare(
-		fmt.Sprintf("DELETE FROM wishlist WHERE id IN (%s) AND user_id == ?", placeholdersStr))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer deleteStmt.Close()
-
-	result, err := deleteStmt.Exec(args...)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil && rowsAffected == 0 {
-		http.Error(w, "non-existent row", http.StatusNotFound)
-		return
-	}
-}
-
-func handleWishlistPatch(id uint64, logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *http.Request) {
-	type WishlistPatch struct {
-		Id          uint64  `json:"id"`
-		Seq         uint64  `json:"seq"`
-		Description *string `json:"description"`
-		Source      *string `json:"source"`
-		Cost        *string `json:"cost"`
-		OwnerNotes  *string `json:"owner_notes"`
-		BuyerNotes  *string `json:"buyer_notes"`
-	}
-
-	var req WishlistPatch
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&req); err != nil {
-		http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
-		return
-	}
-
-	// Make sure the request body stream is closed.
-	defer r.Body.Close()
-
-	if req.Id == 0 || req.Seq == 0 {
-		http.Error(w, "missing id or seq", http.StatusBadRequest)
-		return
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// Defer a rollback in case of errors, this will be skipped if Commit() is successful
-	defer tx.Rollback()
-
-	// Prepare a statement for insertion within the transaction
-	selectStmt, err := tx.Prepare("SELECT user_id,sequence_number FROM wishlist WHERE id == ?")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer selectStmt.Close()
-
-	var rowUserId int64
-	var sequenceNumber int64
-	err = selectStmt.QueryRow(req.Id).Scan(&rowUserId, &sequenceNumber)
-	if err != nil {
-		http.Error(w, "error loading row", http.StatusInternalServerError)
-		return
-	}
-
-	if uint64(sequenceNumber) != req.Seq {
-		http.Error(w, fmt.Sprintf("client seq %d does not match server seq %d, try again",
-			req.Seq, sequenceNumber), http.StatusConflict)
-		return
-	}
-
-	if uint64(rowUserId) == id {
-		if req.BuyerNotes != nil {
-			http.Error(w, "wishlist owner can not edit buyer notes", http.StatusBadRequest)
-			return
+		type WishlistEntry struct {
+			Description string `json:"description"`
+			Source      string `json:"source"`
+			Cost        string `json:"cost"`
+			OwnerNotes  string `json:"owner_notes"`
 		}
-		if req.Description == nil && req.Source == nil && req.Cost == nil && req.OwnerNotes == nil {
-			http.Error(w, "must provide something to patch", http.StatusBadRequest)
-			return
-		}
-	} else {
-		if req.Description != nil || req.Source != nil || req.Cost != nil || req.OwnerNotes != nil {
-			http.Error(w, "non-owner can only edit buyer notes", http.StatusBadRequest)
-			return
-		}
-		if req.BuyerNotes == nil {
-			http.Error(w, "must provide something to patch", http.StatusBadRequest)
-			return
-		}
-	}
 
-	var fields = []struct {
-		RequestField *string
-		DbColumn     string
-	}{
-		{req.Description, "description"},
-		{req.Source, "source"},
-		{req.Cost, "cost"},
-		{req.OwnerNotes, "owner_notes"},
-		{req.BuyerNotes, "buyer_notes"},
-	}
-
-	var arguments []interface{}
-	var fieldsToSet []string
-	for _, mapping := range fields {
-		if mapping.RequestField != nil {
-			arguments = append(arguments, *mapping.RequestField)
-			fieldsToSet = append(fieldsToSet, fmt.Sprintf("%s = ?", mapping.DbColumn))
-		}
-	}
-	fieldsToSet = append(fieldsToSet, "sequence_number = ?")
-	arguments = append(arguments, req.Seq+1)
-
-	arguments = append(arguments, req.Id)
-
-	preparedStr := fmt.Sprintf("UPDATE wishlist SET %s WHERE id = ?", strings.Join(fieldsToSet, ", "))
-	logger.Printf("update statement: %s", preparedStr)
-	updateStmt, err := tx.Prepare(preparedStr)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer updateStmt.Close()
-
-	_, err = updateStmt.Exec(arguments...)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-}
-
-func handleWishlist(logger *log.Logger, db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		err, id := authenticateUser(logger, db, w, r)
-		if err != nil {
-			return
+		type WishlistResponse struct {
+			Id uint64 `json:"id"`
 		}
 
 		if r.Header.Get("Content-Type") != "application/json" {
@@ -693,35 +422,280 @@ func handleWishlist(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		if r.Method == http.MethodGet {
-			handleWishlistGet(id, logger, db, w, r)
-		} else if r.Method == http.MethodPost {
-			handleWishlistPost(id, logger, db, w, r)
-		} else if r.Method == http.MethodDelete {
-			handleWishlistDelete(id, logger, db, w, r)
-		} else if r.Method == http.MethodPatch {
-			handleWishlistPatch(id, logger, db, w, r)
+		var reqBody WishlistEntry
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&reqBody); err != nil {
+			http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Make sure the request body stream is closed.
+		defer r.Body.Close()
+
+		stmt, err := db.Prepare("INSERT INTO wishlist(user_id, description, source, cost, owner_notes) VALUES(?, ?, ?, ?, ?)")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
+
+		result, err := stmt.Exec(id, reqBody.Description, reqBody.Source, reqBody.Cost, reqBody.OwnerNotes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		lastID, err := result.LastInsertId()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error getting id: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		response := WishlistResponse{Id: uint64(lastID)}
+
+		// Encode the data and write it to the response
+		encoder := json.NewEncoder(w)
+		if err := encoder.Encode(response); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+func handleWishlistDelete(logger *log.Logger, db *sql.DB) func(http.ResponseWriter, *http.Request, uint64) {
+	return func(w http.ResponseWriter, r *http.Request, id uint64) {
+		type DeleteRequest struct {
+			Ids []uint64 `json:"ids"`
+		}
+
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		var reqBody DeleteRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&reqBody); err != nil {
+			http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Make sure the request body stream is closed.
+		defer r.Body.Close()
+
+		// Start a transaction
+		tx, err := db.Begin()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Defer a rollback in case of errors, this will be skipped if Commit() is successful
+		defer tx.Rollback()
+
+		// Generate the correct number of placeholders (?, ?, ?...)
+		placeholders := make([]string, len(reqBody.Ids))
+		for i := range reqBody.Ids {
+			placeholders[i] = "?"
+		}
+		placeholdersStr := strings.Join(placeholders, ", ")
+
+		// Prepare a statement for insertion within the transaction
+		selectStmt, err := tx.Prepare(
+			fmt.Sprintf("SELECT COUNT(*) FROM wishlist WHERE id IN (%s) AND user_id != ?", placeholdersStr))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer selectStmt.Close() // Close the statement when done
+
+		args := make([]interface{}, len(reqBody.Ids)+1)
+		for i, id := range reqBody.Ids {
+			args[i] = id
+		}
+		args[len(reqBody.Ids)] = id
+
+		var count uint
+		selectStmt.QueryRow(args...).Scan(&count)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if count != 0 {
+			http.Error(w, "Attempt to delete wishlist rows not owned by user", http.StatusUnauthorized)
+			return
+		}
+
+		deleteStmt, err := tx.Prepare(
+			fmt.Sprintf("DELETE FROM wishlist WHERE id IN (%s) AND user_id == ?", placeholdersStr))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer deleteStmt.Close()
+
+		result, err := deleteStmt.Exec(args...)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil && rowsAffected == 0 {
+			http.Error(w, "non-existent row", http.StatusNotFound)
+			return
+		}
+	}
+}
+
+func handleWishlistPatch(logger *log.Logger, db *sql.DB) func(http.ResponseWriter, *http.Request, uint64) {
+	return func(w http.ResponseWriter, r *http.Request, userId uint64) {
+		type WishlistPatch struct {
+			Id          uint64  `json:"id"`
+			Seq         uint64  `json:"seq"`
+			Description *string `json:"description"`
+			Source      *string `json:"source"`
+			Cost        *string `json:"cost"`
+			OwnerNotes  *string `json:"owner_notes"`
+			BuyerNotes  *string `json:"buyer_notes"`
+		}
+
+		var req WishlistPatch
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			http.Error(w, "Bad Request: Malformed JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Make sure the request body stream is closed.
+		defer r.Body.Close()
+
+		if req.Id == 0 || req.Seq == 0 {
+			http.Error(w, "missing id or seq", http.StatusBadRequest)
+			return
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Defer a rollback in case of errors, this will be skipped if Commit() is successful
+		defer tx.Rollback()
+
+		// Prepare a statement for insertion within the transaction
+		selectStmt, err := tx.Prepare("SELECT user_id,sequence_number FROM wishlist WHERE id == ?")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer selectStmt.Close()
+
+		var rowUserId int64
+		var sequenceNumber int64
+		err = selectStmt.QueryRow(req.Id).Scan(&rowUserId, &sequenceNumber)
+		if err != nil {
+			http.Error(w, "error loading row", http.StatusInternalServerError)
+			return
+		}
+
+		if uint64(sequenceNumber) != req.Seq {
+			http.Error(w, fmt.Sprintf("client seq %d does not match server seq %d, try again",
+				req.Seq, sequenceNumber), http.StatusConflict)
+			return
+		}
+
+		if uint64(rowUserId) == userId {
+			if req.BuyerNotes != nil {
+				http.Error(w, "wishlist owner can not edit buyer notes", http.StatusBadRequest)
+				return
+			}
+			if req.Description == nil && req.Source == nil && req.Cost == nil && req.OwnerNotes == nil {
+				http.Error(w, "must provide something to patch", http.StatusBadRequest)
+				return
+			}
 		} else {
-			http.Error(w, "", http.StatusMethodNotAllowed)
+			if req.Description != nil || req.Source != nil || req.Cost != nil || req.OwnerNotes != nil {
+				http.Error(w, "non-owner can only edit buyer notes", http.StatusBadRequest)
+				return
+			}
+			if req.BuyerNotes == nil {
+				http.Error(w, "must provide something to patch", http.StatusBadRequest)
+				return
+			}
+		}
+
+		var fields = []struct {
+			RequestField *string
+			DbColumn     string
+		}{
+			{req.Description, "description"},
+			{req.Source, "source"},
+			{req.Cost, "cost"},
+			{req.OwnerNotes, "owner_notes"},
+			{req.BuyerNotes, "buyer_notes"},
+		}
+
+		var arguments []interface{}
+		var fieldsToSet []string
+		for _, mapping := range fields {
+			if mapping.RequestField != nil {
+				arguments = append(arguments, *mapping.RequestField)
+				fieldsToSet = append(fieldsToSet, fmt.Sprintf("%s = ?", mapping.DbColumn))
+			}
+		}
+		fieldsToSet = append(fieldsToSet, "sequence_number = ?")
+		arguments = append(arguments, req.Seq+1)
+
+		arguments = append(arguments, req.Id)
+
+		preparedStr := fmt.Sprintf("UPDATE wishlist SET %s WHERE id = ?", strings.Join(fieldsToSet, ", "))
+		logger.Printf("update statement: %s", preparedStr)
+		updateStmt, err := tx.Prepare(preparedStr)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer updateStmt.Close()
+
+		_, err = updateStmt.Exec(arguments...)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 }
 
-func handleUsers(logger *log.Logger, db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		err, _ := authenticateUser(logger, db, w, r)
-		if err != nil {
-			return
+func authMiddlewareNew(logger *log.Logger, db *sql.DB) func(func(http.ResponseWriter, *http.Request, uint64)) http.HandlerFunc {
+	return func(nextHandler func(http.ResponseWriter, *http.Request, uint64)) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			err, userId := authenticateUser(logger, db, w, r)
+			if err != nil {
+				return
+			}
+			nextHandler(w, r, userId)
 		}
+	}
+}
 
+func handleUsersGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter, *http.Request, uint64) {
+	return func(w http.ResponseWriter, r *http.Request, userId uint64) {
 		if r.Header.Get("Content-Type") != "application/json" {
 			http.Error(w, "", http.StatusUnsupportedMediaType)
-			return
-		}
-
-		if r.Method != http.MethodGet {
-			http.Error(w, "", http.StatusMethodNotAllowed)
 			return
 		}
 
@@ -867,10 +841,20 @@ func addRoutes(
 	config *Config,
 	db *sql.DB,
 ) {
-	mux.Handle("/api/session", handleSession(logger, db))
-	mux.Handle("/api/signup", handleSignup(logger, db))
-	mux.Handle("/api/wishlist", handleWishlist(logger, db))
-	mux.Handle("/api/users", handleUsers(logger, db))
+	authMiddleware := authMiddlewareNew(logger, db)
+
+	mux.Handle("GET /api/session", authMiddleware(handleSessionGet(logger, db)))
+	mux.Handle("POST /api/session", handleSessionPost(logger, db))
+	mux.Handle("DELETE /api/session", handleSessionDelete(logger, db))
+
+	mux.Handle("POST /api/signup", handleSignup(logger, db))
+
+	mux.Handle("GET /api/wishlist", authMiddleware(handleWishlistGet(logger, db)))
+	mux.Handle("POST /api/wishlist", authMiddleware(handleWishlistPost(logger, db)))
+	mux.Handle("DELETE /api/wishlist", authMiddleware(handleWishlistDelete(logger, db)))
+	mux.Handle("PATCH /api/wishlist", authMiddleware(handleWishlistPatch(logger, db)))
+
+	mux.Handle("GET /api/users", authMiddleware(handleUsersGet(logger, db)))
 }
 
 var requestIdCounter atomic.Uint64

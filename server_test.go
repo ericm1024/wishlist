@@ -20,17 +20,6 @@ func TestSignup(t *testing.T) {
 
 	tests := []testCase{
 		{
-			name: "bad method",
-			body: `{
-                             "first": "joe",
-                             "last": "cool",
-                             "email": "joecool@gmail.com",
-                             "password": "mypassword"
-                        }`,
-			code:   http.StatusMethodNotAllowed,
-			method: "GET",
-		},
-		{
 			name: "bad content type",
 			body: `{
                              "first": "joe",
