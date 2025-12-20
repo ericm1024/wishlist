@@ -7,9 +7,6 @@ core functionality
     * API to generate invite links
     * client-side UI to generate invite links
     * client-side UI to list invite links
-    * changes to server-side signup to use invite links
-    * changes to client-side signup UI to require invite links
-    * disable signup without invite link
 * client & server side form input validation
 * password requirements (ascii text, length, complexity)
 * release build
@@ -20,15 +17,12 @@ core functionality
 
 hardening
 ---------
-* database field size limits
 * user-level quotas
 * API ratelimiting
 
 UI/UX improvements
 ------------------
 * automatic session extension
-* clickable source URLs
-* creation date on wishlist entries
 * smaller rendered wishlist entries -- fit more on one page
 * larger dialog box for wishlist editing
 * import from vistes.com
@@ -46,7 +40,6 @@ dev/hygiene
 * frontend unit tests
 * backend session expiration cleanup
 * top-level middleware to do 'defer r.Body.Close()'?
-* better auth middleware
 * golang helper function for request decoding
 * browser compat tests
 * code formatting integration for frontend & backend

@@ -139,13 +139,28 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
            );
 }
 
+function MaybeUrl({url}) {
+    try {
+        var urlObj = new URL(url);
+        if (urlObj.protocol === "http:" || urlObj.protocol === "https:") {
+            return <a href={url} target="_blank" rel="noopener noreferrer">{url}</a>
+        }
+    } catch (_) {
+    }
+
+    return <> {url} </>
+}
+
 function WishlistRow({row, isOwner, setWishlistUpToDate}) {
+    const date = new Date(row.creation_time)
+    
     return (<div className="wishlist-item-container">
                 <div className="wishlist-item-header-footer">
                     <h3> {row.description} </h3>
                     <p> {row.cost} </p>
                 </div>
-                <p> {row.source} </p>
+                <p> Added {date.toDateString()} </p>
+                <p> <MaybeUrl url={row.source}/> </p>
                 <p className="wishlist-notes"> {row.owner_notes} </p>
                 {isOwner ? null : <p className="wishlist-notes"> {row.buyer_notes} </p>}
                 <div className="wishlist-item-header-footer">
@@ -366,7 +381,7 @@ function Login({setShowLogin, setLoggedInUserInfo}) {
                 setLoggedInUserInfo(data)
             }
         } catch (error) {
-            loginError(error.message)
+            setLoginError(error.message)
             console.log('Error sending data: ' + error.message);
         }
     }
@@ -400,6 +415,7 @@ function Login({setShowLogin, setLoggedInUserInfo}) {
 
 function Signup({setShowLogin, setIsSignedIn}) {
     const [formState, setFormState] = useState({
+        invite_code: '',
         first: '',
         last: '',
         email: '',
@@ -407,6 +423,13 @@ function Signup({setShowLogin, setIsSignedIn}) {
     });
     const formRef = useRef(null);
 
+    function handleInviteCode(event) {
+        setFormState(formState => ({
+            ...formState,
+            invite_code: event.target.value
+        }))
+    };
+    
     function handleFirstName(event) {
         setFormState(formState => ({
             ...formState,
@@ -464,8 +487,14 @@ function Signup({setShowLogin, setIsSignedIn}) {
     return (
         <div>
             <h1> Signup </h1>
-            First Name <br/>
             <form ref={formRef} onSubmit={handleSubmit}>
+                Invite Code <br/>
+                <input
+                    type="text"
+                    name="invite_code"
+                    onChange={handleInviteCode}
+                /> <br/>
+                First Name <br/>
                 <input
                     type="text"
                     name="firstname"

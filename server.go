@@ -252,10 +252,11 @@ func handleSessionGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter, 
 
 // The struct that represents the expected JSON body.
 type SignupRequest struct {
-	FirstName string `json:"first"`
-	LastName  string `json:"last"`
-	Email     string `json:"email"`
-	Password  string `json:"password"`
+	FirstName  string `json:"first"`
+	LastName   string `json:"last"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	InviteCode string `json:"invite_code"`
 }
 
 func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
@@ -273,12 +274,18 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		if reqBody.FirstName == "" || reqBody.LastName == "" || reqBody.Email == "" || reqBody.Password == "" {
+		if reqBody.FirstName == "" || reqBody.LastName == "" || reqBody.Email == "" || reqBody.Password == "" || reqBody.InviteCode == "" {
 			http.Error(w, "missing fields", http.StatusBadRequest)
 			return
 		}
 
 		_, err := mail.ParseAddress(reqBody.Email)
+		if err != nil {
+			http.Error(w, "missing fields", http.StatusBadRequest)
+			return
+		}
+
+		inviteCodeBlob, err := base64.URLEncoding.DecodeString(reqBody.InviteCode)
 		if err != nil {
 			http.Error(w, "missing fields", http.StatusBadRequest)
 			return
@@ -293,18 +300,57 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 			http.Error(w, fmt.Sprintf("error hashing password: %v", err), http.StatusInternalServerError)
 		}
 
-		stmt, err := db.Prepare("INSERT INTO users(first_name, last_name, email, password_hash) VALUES(?, ?, ?, ?)")
+		// Start a transaction
+		tx, err := db.Begin()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Defer a rollback in case of errors, this will be skipped if Commit() is successful
+		defer tx.Rollback()
+
+		stmt, err := tx.Prepare("DELETE FROM invite_codes WHERE invite_code = ?")
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error creating prepared statement: %v", err), http.StatusInternalServerError)
 			return
 		}
 		defer stmt.Close()
 
-		result, err := stmt.Exec(reqBody.FirstName, reqBody.LastName, reqBody.Email, string(encoded))
+		result, err := stmt.Exec(inviteCodeBlob)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		rowsDeleted, err := result.RowsAffected()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if rowsDeleted != 1 {
+			http.Error(w, fmt.Sprintf("bad invite code"), http.StatusBadRequest)
+			return
+		}
+
+		stmt, err = tx.Prepare("INSERT INTO users(first_name, last_name, email, password_hash) VALUES(?, ?, ?, ?)")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error creating prepared statement: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
+
+		result, err = stmt.Exec(reqBody.FirstName, reqBody.LastName, reqBody.Email, string(encoded))
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error adding user: %v", err), http.StatusInternalServerError)
 			return
 		}
+
+		err = tx.Commit()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("error committing transaction: %v", err), http.StatusInternalServerError)
+			return
+		}
+
 		lastID, err := result.LastInsertId()
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error getting id: %v", err), http.StatusInternalServerError)
@@ -323,13 +369,14 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 func handleWishlistGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter, *http.Request, uint64) {
 	return func(w http.ResponseWriter, r *http.Request, userId uint64) {
 		type WishlistEntry struct {
-			Id          uint64  `json:"id"`
-			Seq         uint64  `json:"seq"`
-			Description string  `json:"description"`
-			Source      string  `json:"source"`
-			Cost        string  `json:"cost"`
-			OwnerNotes  *string `json:"owner_notes"`
-			BuyerNotes  *string `json:"buyer_notes"`
+			Id           uint64    `json:"id"`
+			Seq          uint64    `json:"seq"`
+			Description  string    `json:"description"`
+			Source       string    `json:"source"`
+			Cost         string    `json:"cost"`
+			OwnerNotes   *string   `json:"owner_notes"`
+			BuyerNotes   *string   `json:"buyer_notes"`
+			CreationTime time.Time `json:"creation_time"`
 		}
 
 		type WishlistGetResponse struct {
@@ -358,7 +405,7 @@ func handleWishlistGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter,
 		// Make sure the request body stream is closed.
 		defer r.Body.Close()
 
-		stmt, err := db.Prepare("SELECT id,sequence_number,description,source,cost,owner_notes,buyer_notes FROM wishlist WHERE user_id = ?")
+		stmt, err := db.Prepare("SELECT id,sequence_number,description,source,cost,owner_notes,buyer_notes,creation_time FROM wishlist WHERE user_id = ?")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -378,7 +425,9 @@ func handleWishlistGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter,
 			entry := &response.Entries[len(response.Entries)-1]
 
 			err = rows.Scan(&entry.Id, &entry.Seq, &entry.Description, &entry.Source, &entry.Cost,
-				&entry.OwnerNotes, &entry.BuyerNotes)
+				&entry.OwnerNotes, &entry.BuyerNotes, &entry.CreationTime)
+			logger.Printf("creation time: %v", entry.CreationTime)
+
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -753,9 +802,9 @@ func initDb(logger *log.Logger, dbPath string) *sql.DB {
 	sqlStmt := `
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		first_name TEXT NOT NULL,
-		last_name TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE,
+		first_name TEXT NOT NULL CHECK(length(first_name) < 500),
+		last_name TEXT NOT NULL CHECK(length(last_name) < 500),
+        email TEXT NOT NULL UNIQUE CHECK(length(email) < 500),
         password_hash TEXT NOT NULL,
         registration_date DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -787,11 +836,11 @@ func initDb(logger *log.Logger, dbPath string) *sql.DB {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
         sequence_number INTEGER DEFAULT 1,
         user_id INTEGER NOT NULL,
-        description TEXT NOT NULL,
-        source TEXT NOT NULL,
-        cost TEXT NOT NULL,
-        owner_notes TEXT,
-        buyer_notes TEXT,
+        description TEXT NOT NULL CHECK(length(description) < 2000),
+        source TEXT NOT NULL CHECK(length(source) < 2000),
+        cost TEXT NOT NULL CHECK(length(cost) < 2000),
+        owner_notes TEXT CHECK(length(owner_notes) < 2000),
+        buyer_notes TEXT CHECK(length(buyer_notes) < 2000),
         creation_time DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 	);
@@ -895,9 +944,8 @@ type adminGrpcServer struct {
 	Db     *sql.DB
 }
 
-func (s *adminGrpcServer) GenerateInviteCode(ctx context.Context, in *emptypb.Empty) (*admin_rpc.IvniteCodeReply, error) {
-
-	stmt, err := s.Db.Prepare("INSERT INTO invite_codes(invite_code, expiry_time) VALUES(?, ?)")
+func generateInviteCodeHelper(db *sql.DB) ([]byte, error) {
+	stmt, err := db.Prepare("INSERT INTO invite_codes(invite_code, expiry_time) VALUES(?, ?)")
 	if err != nil {
 		return nil, err
 	}
@@ -911,6 +959,15 @@ func (s *adminGrpcServer) GenerateInviteCode(ctx context.Context, in *emptypb.Em
 	expiryTime := time.Now().Add(time.Duration(7*24) * time.Hour)
 
 	_, err = stmt.Exec(inviteCode, expiryTime)
+	if err != nil {
+		return nil, err
+	}
+	return inviteCode, nil
+}
+
+func (s *adminGrpcServer) GenerateInviteCode(ctx context.Context, in *emptypb.Empty) (*admin_rpc.IvniteCodeReply, error) {
+
+	inviteCode, err := generateInviteCodeHelper(s.Db)
 	if err != nil {
 		return nil, err
 	}
