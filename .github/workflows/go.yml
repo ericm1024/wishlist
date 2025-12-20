@@ -1,0 +1,24 @@
+name: Go test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Go
+        uses: actions/setup-go@v6.0.0
+        with:
+          go-version-file: go.mod
+      - name: Check code formatting
+        run: |
+          # The gofmt -l flag lists files that are not correctly formatted.
+          # The command exits with a non-zero status if any files are listed.
+          unformatted_files=$(gofmt -l -s .)
+          if [ -n "$unformatted_files" ]; then
+            echo "The following Go files are not formatted correctly:"
+            echo "$unformatted_files"
+            echo "Please run 'gofmt -w -s .' on your local machine to format your code."
+            exit 1
+          fi          
+      - name: Run unit tests
+        run: go test -v
