@@ -44,10 +44,10 @@ dev/hygiene
 * browser compat tests
 * code formatting integration for frontend & backend
 * linter for frontend & backend
-* github actions for PRs
 * security review
     * walk through https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html etc
 * static analysis tool
 * improved logging
 * logrotate support
 * API performance tests
+* npm ci/npm test
