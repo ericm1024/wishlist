@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { BrowserRouter, Link, NavLink, Routes, Route, useNavigate, useParams, useSearchParams } from "react-router";
 
 function DeleteWishlistEntryButton({rowId, setWishlistUpToDate}) {
     async function doDelete() {
@@ -177,47 +178,12 @@ function WishlistRow({row, isOwner, setWishlistUpToDate}) {
             </div>);
 }
 
-function WishlistItems({displayedWishlistUser, wishlistUpToDate,
-                        setWishlistUpToDate, loggedInUserInfo}) {
-    const [data, setData] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-        
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                let url = '/api/wishlist?' + new URLSearchParams({
-                        userId: displayedWishlistUser["id"]
-                    }).toString()
-                const response = await fetch(url, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                setData(await response.json());
-                setWishlistUpToDate(true)
-            } catch (error) {
-                setError(error);
-            } finally {
-                setLoading(false);
-            }
-        };
-        
-        fetchData();
-    }, [displayedWishlistUser, wishlistUpToDate, setWishlistUpToDate]);
-
-    if (loading) return <p>Loading data...</p>;
-    if (error) return <p>Error: {error.message}</p>;
-
-    const isOwner = displayedWishlistUser !== null && displayedWishlistUser["id"] === loggedInUserInfo["id"];
+function WishlistItems({wishlistData, setWishlistUpToDate, loggedInUserInfo}) {
+    const isOwner = wishlistData.user.id === loggedInUserInfo.id;
 
     return (
         <div className="wishlist-list">
-            {data["entries"] === null ? null : data["entries"].map((row, rowIndex) => (
+            {wishlistData.entries === null ? null : wishlistData.entries.map((row, rowIndex) => (
                 <WishlistRow key={rowIndex}
                              row={row}
                              isOwner={isOwner}
@@ -347,10 +313,13 @@ function WishlistAdder({setWishlistUpToDate}) {
 }
 
 
-function Login({setShowLogin, setLoggedInUserInfo}) {
+function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loginError, setLoginError] = useState('');
+    const [doLogin, setDoLogin] = useState(null);
+    let navigate = useNavigate();
+    const [searchParams, ] = useSearchParams();
 
     function handleEmail(event) {
         setEmail(event.target.value);
@@ -360,31 +329,45 @@ function Login({setShowLogin, setLoggedInUserInfo}) {
         setPassword(event.target.value);
     };
 
-    async function doLogin() {
-        try {
-            const response = await fetch('/api/session', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    "email": email,
-                    "password": password
-                })
-            });
-            
-            const data = await response.json()
-
-            if (!response.ok) {
-                setLoginError(data)
-            } else {
-                setLoggedInUserInfo(data)
-            }
-        } catch (error) {
-            setLoginError(error.message)
-            console.log('Error sending data: ' + error.message);
+    useEffect(() => {
+        if (!doLogin) {
+            return
         }
-    }
+
+        const login = async() => {
+            try {
+                const response = await fetch('/api/session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        "email": email,
+                        "password": password
+                    })
+                });
+                
+                const data = await response.json()
+                
+                if (!response.ok) {
+                    setLoginError(data)
+                } else {
+                    localStorage.setItem("userInfo", JSON.stringify(data));
+                    let redir = searchParams.get("redir")
+                    if (redir) {
+                        navigate(decodeURIComponent(redir))
+                    } else {
+                        navigate("/wishlist/" + data.id)
+                    }
+                }
+            } catch (error) {
+                setLoginError(error.message)
+                console.log('Error sending data: ' + error.message);
+            }
+            setDoLogin(false);
+        }
+        login();
+    }, [doLogin, email, navigate, searchParams, password]);
 
     return (
         <div>
@@ -394,26 +377,33 @@ function Login({setShowLogin, setLoggedInUserInfo}) {
                 type="email"
                 name="email"
                 onChange={handleEmail}
+                disabled={doLogin}
             /> <br/>
             Password <br/>
             <input
                 type="password"
                 name="user_password"
-                onChange={handlePassword}              
+                onChange={handlePassword}
+                disabled={doLogin}
             /> <br/>
-            <button onClick={doLogin}>
+            <button onClick={() => setDoLogin(true)}
+                    disabled={doLogin}>
                 Submit
             </button>
             {loginError && <p>{loginError}</p>}
             <p> don't have an account? </p>
-            <button onClick={() => setShowLogin(false)}>
-                Signup
-            </button>            
+            <nav>
+                <Link to="/signup">
+                    <button>
+                        Signup
+                    </button>
+                </Link>
+            </nav>
         </div>
     );
 }
 
-function Signup({setShowLogin, setIsSignedIn}) {
+function Signup() {
     const [formState, setFormState] = useState({
         invite_code: '',
         first: '',
@@ -422,6 +412,7 @@ function Signup({setShowLogin, setIsSignedIn}) {
         password: ''
     });
     const formRef = useRef(null);
+    let navigate = useNavigate();
 
     function handleInviteCode(event) {
         setFormState(formState => ({
@@ -473,12 +464,14 @@ function Signup({setShowLogin, setIsSignedIn}) {
                 body: JSON.stringify(formState)
             });
 
+            const data = await response.json()
+            
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
-            await response
-            setIsSignedIn(true)
+            localStorage.setItem("userInfo", data);
+            navigate("/wishlist/" + data.id)
         } catch (error) {
             console.log('Error sending data: ' + error.message);
         }
@@ -521,17 +514,23 @@ function Signup({setShowLogin, setIsSignedIn}) {
                 /> <br/>
                 <input type="submit" value="Signup" />             
             </form>
-            <p> Already have an account? </p>              
-            <button onClick={() => setShowLogin(true)}>
-                Login                                 
-            </button>                                              
+            <p> Already have an account? </p>
+            <nav>
+                <Link to="/login">
+                    <button>
+                        Login
+                    </button>
+                </Link>
+            </nav>
         </div>
     );
 }
 
-function LogoutButton({setLoggedInUserInfo}) {
+function LogoutButton() {
     async function doLogout() {
         try {
+            localStorage.removeItem("userInfo")
+
             const response = await fetch('/api/session', {
                 method: 'DELETE',
             });
@@ -539,22 +538,22 @@ function LogoutButton({setLoggedInUserInfo}) {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-
             await response
-            setLoggedInUserInfo(null)
         } catch (error) {
             console.log('error logging out' + error.message);
         }
     }
 
     return (
-        <button onClick={doLogout}>
-            Logout
-        </button>
+        <Link to="/login">
+            <button onClick={doLogout}>
+                Logout
+            </button>
+        </Link>
     );
 }
 
-function WishlistSelector({setDisplayedWishlistUser}) {
+function WishlistSelector() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -603,16 +602,11 @@ function WishlistSelector({setDisplayedWishlistUser}) {
                 <tbody>
                     {data["users"] === null ? null : data["users"].map((row, rowIndex) => (
                         <tr key={rowIndex}>
-                            <td onClick={() => {setDisplayedWishlistUser({
-                                    id: row["id"],
-                                    first: row["first"],
-                                    last: row["last"],
-                                });
-                                                dialogRef.current.close();
-                                                                        }
-                                }
-                                style={{ cursor: 'pointer', color: 'blue' }}>
-                                {row["first"] + " " + row["last"]}
+                            <td>
+                                <NavLink to={"/wishlist/" + row["id"]}
+                                         onClick={() => dialogRef.current.close()}>
+                                    {row["first"] + " " + row["last"]}
+                                </NavLink>
                             </td>
                         </tr>
                     ))}
@@ -623,58 +617,43 @@ function WishlistSelector({setDisplayedWishlistUser}) {
     );    
 }
 
-function LoginOrSignup({setLoggedInUserInfo}) {
-    const [showLogin, setShowLogin] = useState(true);
-    return (
-        <div>
-            {showLogin ? <Login setShowLogin={setShowLogin} setLoggedInUserInfo={setLoggedInUserInfo}/>
-             : <Signup setShowLogin={setShowLogin} setLoggedInUserInfo={setLoggedInUserInfo}/>}
-        </div>
-    );
-}
-
-function Wishlist({loggedInUserInfo}) {
-    const [displayedWishlistUser, setDisplayedWishlistUser] = useState(loggedInUserInfo)
+function Wishlist() {
+    let user = JSON.parse(localStorage.getItem("userInfo"))
+    let navigate = useNavigate();
+    let params = useParams();
     const [wishlistUpToDate, setWishlistUpToDate] = useState(true)
-    
-    return (
-        <div>
-            <h1>{displayedWishlistUser["first"]}'s Wishlist</h1>
-            <div className="wishlist-button-container">
-                <WishlistSelector setDisplayedWishlistUser={setDisplayedWishlistUser}/>
-                {displayedWishlistUser !== null && displayedWishlistUser["id"] === loggedInUserInfo["id"] ? <WishlistAdder setWishlistUpToDate={setWishlistUpToDate}/> : null}
-            </div>
-            <WishlistItems displayedWishlistUser={displayedWishlistUser}
-                           wishlistUpToDate={wishlistUpToDate}
-                           setWishlistUpToDate={setWishlistUpToDate}
-                           loggedInUserInfo={loggedInUserInfo}/>
-        </div>
-    );
-}
-
-export default function MyApp() {
-
-    const [loggedInUserInfo, setLoggedInUserInfo] = useState(null);
+    const [wishlistData, setWishlistData] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);        
-    
+    const [error, setError] = useState(null);
+            
     useEffect(() => {
-        const fetchSession = async () => {
+        let user = JSON.parse(localStorage.getItem("userInfo"))
+        if (user === null) {
+            // server side will validate this too, but don't even bother sending the request, just
+            // re-direct on the client
+            //
+            // TODO: have the login send the user back to whatever wishlist they were looking for
+            let redirect = encodeURIComponent("/wishlist/" + params.userId)
+            navigate("/login?redir=" + redirect)
+            return
+        }
+        
+        const fetchData = async () => {
             try {
-                // NB: this could probably be cached locally? Maybe the browswer can cache it too, idk
-                const response = await fetch('/api/session', {
+                let url = '/api/wishlist?' + new URLSearchParams({
+                        userId: params.userId
+                    }).toString()
+                const response = await fetch(url, {
                     headers: {
                         'Content-Type': 'application/json',
                     },
                 });
 
                 if (!response.ok) {
-                    if (response.status === 401) {
-                        return
-                    }
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                setLoggedInUserInfo(await response.json());
+                setWishlistData(await response.json());
+                setWishlistUpToDate(true)
             } catch (error) {
                 setError(error);
             } finally {
@@ -682,22 +661,54 @@ export default function MyApp() {
             }
         };
         
-        fetchSession();
-    }, [setLoggedInUserInfo]);
+        fetchData();
+    }, [params, wishlistUpToDate, setWishlistUpToDate, navigate]);
 
+    
     if (loading) return <p>Loading data...</p>;
     if (error) return <p>Error: {error.message}</p>;
     
     return (
-        <div className="top-container">
-            <div className="app-body">
-                {loggedInUserInfo !== null ?
-                 <div>
-                     <Wishlist loggedInUserInfo={loggedInUserInfo}/>
-                     <LogoutButton setLoggedInUserInfo={setLoggedInUserInfo}/>
-                 </div>
-                 : <LoginOrSignup setLoggedInUserInfo={setLoggedInUserInfo}/>}
+        <div>
+            <h1>{wishlistData.user.first}'s Wishlist</h1>
+            <div className="wishlist-button-container">
+                <WishlistSelector/>
+                {parseInt(params.userId) === user.id ? <WishlistAdder setWishlistUpToDate={setWishlistUpToDate}/> : null}
             </div>
+            <WishlistItems wishlistData={wishlistData}
+                           setWishlistUpToDate={setWishlistUpToDate}
+                           loggedInUserInfo={user}/>
+            <LogoutButton/>
         </div>
     );
+}
+
+function Root() {
+    let user = JSON.parse(localStorage.getItem("userInfo"))
+    let navigate = useNavigate();
+
+    useEffect(() => {
+        if (user === null) {
+            navigate("/login");
+        } else {
+            navigate("/wishlist/" + user.id)
+        }
+    }, [user, navigate]);
+    return (<div/>)
+}
+
+export default function App() {
+    return (
+        <div className="top-container">
+            <div className="app-body"> 
+                <BrowserRouter>
+                    <Routes>
+                        <Route path="/" element={<Root/>} />
+                        <Route path="login" element={<Login/>}/>
+                        <Route path="signup" element={<Signup/>}/>
+                        <Route path="wishlist/:userId" element={<Wishlist/>}/>
+                    </Routes>
+                </BrowserRouter>
+            </div>
+        </div>)
 }
