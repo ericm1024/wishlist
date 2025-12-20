@@ -189,6 +189,7 @@ func handleSessionPost(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 		encoder := json.NewEncoder(w)
 		if err := encoder.Encode(response); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 }
@@ -363,6 +364,13 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 			http.Error(w, fmt.Sprintf("error creating session %v", err), http.StatusInternalServerError)
 			return
 		}
+
+		response := User{uint64(lastID), reqBody.FirstName, reqBody.LastName}
+		encoder := json.NewEncoder(w)
+		if err := encoder.Encode(response); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
@@ -382,6 +390,7 @@ func handleWishlistGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter,
 		type WishlistGetResponse struct {
 			Headers WishlistEntry   `json:"headers"`
 			Entries []WishlistEntry `json:"entries"`
+			User    `json:"user"`
 		}
 
 		if r.Header.Get("Content-Type") != "application/json" {
@@ -439,6 +448,19 @@ func handleWishlistGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter,
 			}
 		}
 		err = rows.Err()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		stmt, err = db.Prepare("SELECT first_name,last_name FROM users WHERE id = ?")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer stmt.Close()
+
+		err = stmt.QueryRow(queryUserId).Scan(&response.User.FirstName, &response.User.LastName)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

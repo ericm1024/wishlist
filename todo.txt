@@ -10,7 +10,6 @@ core functionality
 * client & server side form input validation
 * password requirements (ascii text, length, complexity)
 * release build
-* client-side URL router
 * changing passwords
 * email activation
 * password reset emails
