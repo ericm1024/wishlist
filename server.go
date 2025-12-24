@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"log"
 	"net"
@@ -435,7 +437,6 @@ func handleWishlistGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter,
 
 			err = rows.Scan(&entry.Id, &entry.Seq, &entry.Description, &entry.Source, &entry.Cost,
 				&entry.OwnerNotes, &entry.BuyerNotes, &entry.CreationTime)
-			logger.Printf("creation time: %v", entry.CreationTime)
 
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -906,6 +907,47 @@ func initDb(logger *log.Logger, dbPath string) *sql.DB {
 	return db
 }
 
+//go:embed my-app/build
+var WebAssets embed.FS
+
+func handleOther(logger *log.Logger) http.HandlerFunc {
+	var (
+		init    sync.Once
+		appDir  fs.FS
+		initErr error
+	)
+	handler := http.FileServerFS(appDir)
+	return func(w http.ResponseWriter, r *http.Request) {
+		init.Do(func() {
+			appDir, initErr = fs.Sub(WebAssets, "my-app/build")
+			if initErr != nil {
+				logger.Printf("failed to open build directory: %v", initErr)
+			}
+		})
+
+		if initErr != nil {
+			http.Error(w, fmt.Sprintf("failed to open build directory: %v", initErr),
+				http.StatusInternalServerError)
+			return
+		}
+
+		file, err := appDir.Open(r.URL.Path[1:])
+		if err == nil {
+			file.Close()
+		}
+
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrInvalid) {
+			logger.Printf("here!!")
+			r.URL.Path = "/"
+		} else if err != nil {
+			http.Error(w, fmt.Sprintf("error opening file %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		handler.ServeHTTP(w, r)
+	}
+}
+
 func addRoutes(
 	mux *http.ServeMux,
 	logger *log.Logger,
@@ -926,6 +968,8 @@ func addRoutes(
 	mux.Handle("PATCH /api/wishlist", authMiddleware(handleWishlistPatch(logger, db)))
 
 	mux.Handle("GET /api/users", authMiddleware(handleUsersGet(logger, db)))
+
+	mux.Handle("GET /{pathname...}", handleOther(logger))
 }
 
 var requestIdCounter atomic.Uint64
