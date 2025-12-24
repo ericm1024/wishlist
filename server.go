@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -40,6 +41,7 @@ type Config struct {
 	HostName        string `json:"host_name"`
 	Port            string `json:"port"`
 	AdminSocketPath string `json:"admin_socket_path"`
+	AllowInsecure   bool   `json:"allow_insecure"`
 }
 
 const sessionCookieKey = "wishlist_session_id"
@@ -89,7 +91,7 @@ func authenticateUser(logger *log.Logger, db *sql.DB, w http.ResponseWriter, r *
 }
 
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies
-func createSession(logger *log.Logger, db *sql.DB, userId int64, userAgent string, w http.ResponseWriter) error {
+func createSession(logger *log.Logger, config *Config, db *sql.DB, userId int64, userAgent string, w http.ResponseWriter) error {
 	stmt, err := db.Prepare("INSERT INTO sessions(session_cookie, id, expiry_time, user_agent) VALUES(?, ?, ?, ?)")
 	if err != nil {
 		return err
@@ -114,7 +116,7 @@ func createSession(logger *log.Logger, db *sql.DB, userId int64, userAgent strin
 		Name:     sessionCookieKey,
 		Value:    base64.URLEncoding.EncodeToString(sessionCookie),
 		Expires:  expiryTime,
-		Secure:   true,
+		Secure:   !config.AllowInsecure,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	})
@@ -125,7 +127,7 @@ func createSession(logger *log.Logger, db *sql.DB, userId int64, userAgent strin
 	return nil
 }
 
-func handleSessionPost(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+func handleSessionPost(logger *log.Logger, config *Config, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// The struct that represents the expected JSON body.
 		type LoginRequest struct {
@@ -181,7 +183,7 @@ func handleSessionPost(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		err = createSession(logger, db, userId, r.Header.Get("User-Agent"), w)
+		err = createSession(logger, config, db, userId, r.Header.Get("User-Agent"), w)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error creating session %v", err), http.StatusInternalServerError)
 			return
@@ -262,7 +264,7 @@ type SignupRequest struct {
 	InviteCode string `json:"invite_code"`
 }
 
-func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
+func handleSignup(logger *log.Logger, config *Config, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Content-Type") != "application/json" {
 			http.Error(w, "", http.StatusUnsupportedMediaType)
@@ -361,7 +363,7 @@ func handleSignup(logger *log.Logger, db *sql.DB) http.HandlerFunc {
 		}
 		logger.Printf("Added user '%s %s' (%s) %d", reqBody.FirstName, reqBody.LastName, reqBody.Email, lastID)
 
-		err = createSession(logger, db, lastID, r.Header.Get("User-Agent"), w)
+		err = createSession(logger, config, db, lastID, r.Header.Get("User-Agent"), w)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error creating session %v", err), http.StatusInternalServerError)
 			return
@@ -461,6 +463,7 @@ func handleWishlistGet(logger *log.Logger, db *sql.DB) func(http.ResponseWriter,
 		}
 		defer stmt.Close()
 
+		response.User.Id = queryUserId
 		err = stmt.QueryRow(queryUserId).Scan(&response.User.FirstName, &response.User.LastName)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -915,13 +918,15 @@ func handleOther(logger *log.Logger) http.HandlerFunc {
 		init    sync.Once
 		appDir  fs.FS
 		initErr error
+		handler http.Handler
 	)
-	handler := http.FileServerFS(appDir)
 	return func(w http.ResponseWriter, r *http.Request) {
 		init.Do(func() {
 			appDir, initErr = fs.Sub(WebAssets, "my-app/build")
 			if initErr != nil {
 				logger.Printf("failed to open build directory: %v", initErr)
+			} else {
+				handler = http.FileServerFS(appDir)
 			}
 		})
 
@@ -937,7 +942,6 @@ func handleOther(logger *log.Logger) http.HandlerFunc {
 		}
 
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrInvalid) {
-			logger.Printf("here!!")
 			r.URL.Path = "/"
 		} else if err != nil {
 			http.Error(w, fmt.Sprintf("error opening file %v", err), http.StatusInternalServerError)
@@ -957,10 +961,10 @@ func addRoutes(
 	authMiddleware := authMiddlewareNew(logger, db)
 
 	mux.Handle("GET /api/session", authMiddleware(handleSessionGet(logger, db)))
-	mux.Handle("POST /api/session", handleSessionPost(logger, db))
+	mux.Handle("POST /api/session", handleSessionPost(logger, config, db))
 	mux.Handle("DELETE /api/session", handleSessionDelete(logger, db))
 
-	mux.Handle("POST /api/signup", handleSignup(logger, db))
+	mux.Handle("POST /api/signup", handleSignup(logger, config, db))
 
 	mux.Handle("GET /api/wishlist", authMiddleware(handleWishlistGet(logger, db)))
 	mux.Handle("POST /api/wishlist", authMiddleware(handleWishlistPost(logger, db)))
@@ -1047,14 +1051,21 @@ func run(ctx context.Context, w io.Writer, args []string) error {
 
 	logger := log.Default()
 
-	configFile, err := ioutil.ReadFile("config.json")
+	// 1. Define a command-line flag for the config file path.
+	// The variable 'configPath' will be a pointer to a string.
+	configPath := flag.String("config", "config.json", "Path to the configuration file")
+
+	// 2. Parse the command-line arguments.
+	flag.Parse()
+
+	configFile, err := ioutil.ReadFile(*configPath)
 	if err != nil {
 		logger.Fatalf("Error reading config file: %v", err)
 	}
 
 	// default values
 	config := Config{DbPath: "wishlist.db", HostName: "localhost", Port: "80",
-		AdminSocketPath: "wishlist_admin.sock"}
+		AdminSocketPath: "wishlist_admin.sock", AllowInsecure: false}
 
 	err = json.Unmarshal(configFile, &config)
 	if err != nil {
