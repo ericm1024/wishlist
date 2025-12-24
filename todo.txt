@@ -27,7 +27,7 @@ UI/UX improvements
 * client UI to list & delete sessions
 * wishlist sorting UI
 * optimize round-trips for page loading
-* mobile UI
+* modal dialog close button + close on click-out
 * dynamic client-side update (listener API)
 * client-side error handling design
 * click-to-exit + exit button for modal dialogs

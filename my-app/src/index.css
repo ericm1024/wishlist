@@ -27,8 +27,7 @@ border:1px solid #000000;
 }
 
 .app-body {
-    max-width: 70%;
-    min-width: 500px;
+    min-width: min(300px, 90%);
 }
 
 .wishlist-button-container {
@@ -61,4 +60,22 @@ border:1px solid #000000;
 .wishlist-notes {
     font-size: 85%;
     color: #899499;
+    margin: 2px;
+}
+
+.login-signup {
+    padding: 1rem
+}
+
+.login-signup-input {
+    width: 100%;
+    font-size: 16px; 
+}
+
+.wishlist-item-name {
+    margin: 2px;
+}
+
+.wishlist-data {
+    margin: 2px;
 }

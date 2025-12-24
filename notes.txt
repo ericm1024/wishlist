@@ -16,3 +16,7 @@ go tool cover -html=coverage.out -o coverage.html
 run react server:
 -----------------
 $ npm start
+
+tcpdump for incoming http traffic:
+----------------------------------
+sudo tcpdump -i en0 port 8080 -A

@@ -93,6 +93,7 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                          <input
                              type="text"
                              name="description"
+                             className="login-signup-input"
                              value={formState.description !== undefined ? formState.description : row.description}
                              onChange={(event) => updateField("description", event.target.value)}
                          /> <br/>
@@ -100,6 +101,7 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                          <input
                              type="text"
                              name="source"
+                             className="login-signup-input"
                              value={formState.source !== undefined ? formState.source : row.source}
                              onChange={(event) => updateField("source", event.target.value)}
                          /> <br/>
@@ -107,6 +109,7 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                          <input
                              type="text"
                              name="cost"
+                             className="login-signup-input"
                              value={formState.cost !== undefined ? formState.cost : row.cost}
                              onChange={(event) => updateField("cost", event.target.value)}
                          /> <br/>            
@@ -114,6 +117,7 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                          <input
                              type="text"
                              name="owner_notes"
+                             className="login-signup-input"
                              value={formState.owner_notes !== undefined ? formState.owner_notes : row.owner_notes ? row.owner_notes : ""}
                              onChange={(event) => updateField("owner_notes", event.target.value)}
                          />
@@ -124,6 +128,7 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                          <input
                              type="text"
                              name="buyer_notes"
+                             className="login-signup-input"
                              value={formState.buyer_notes !== undefined ? formState.buyer_notes : row.buyer_notes ? row.buyer_notes : ""}
                              onChange={(event) => updateField("buyer_notes", event.target.value)}
                          />
@@ -157,11 +162,11 @@ function WishlistRow({row, isOwner, setWishlistUpToDate}) {
     
     return (<div className="wishlist-item-container">
                 <div className="wishlist-item-header-footer">
-                    <h3> {row.description} </h3>
-                    <p> {row.cost} </p>
+                    <h3 className="wishlist-item-name"> {row.description} </h3>
+                    <p className="wishlist-data"> {row.cost} </p>
                 </div>
-                <p> Added {date.toDateString()} </p>
-                <p> <MaybeUrl url={row.source}/> </p>
+                <p className="wishlist-data"> Added {date.toDateString()} </p>
+                <p className="wishlist-data"> <MaybeUrl url={row.source}/> </p>
                 <p className="wishlist-notes"> {row.owner_notes} </p>
                 {isOwner ? null : <p className="wishlist-notes"> {row.buyer_notes} </p>}
                 <div className="wishlist-item-header-footer">
@@ -180,7 +185,7 @@ function WishlistRow({row, isOwner, setWishlistUpToDate}) {
 
 function WishlistItems({wishlistData, setWishlistUpToDate, loggedInUserInfo}) {
     const isOwner = wishlistData.user.id === loggedInUserInfo.id;
-
+    
     return (
         <div className="wishlist-list">
             {wishlistData.entries === null ? null : wishlistData.entries.map((row, rowIndex) => (
@@ -370,10 +375,11 @@ function Login() {
     }, [doLogin, email, navigate, searchParams, password]);
 
     return (
-        <div>
+        <div className="login-signup">
             <h1> Login </h1>
             Email <br/>
             <input
+                className="login-signup-input"
                 type="email"
                 name="email"
                 onChange={handleEmail}
@@ -381,6 +387,7 @@ function Login() {
             /> <br/>
             Password <br/>
             <input
+                className="login-signup-input"
                 type="password"
                 name="user_password"
                 onChange={handlePassword}
@@ -470,7 +477,7 @@ function Signup() {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
-            localStorage.setItem("userInfo", data);
+            localStorage.setItem("userInfo", JSON.stringify(data));
             navigate("/wishlist/" + data.id)
         } catch (error) {
             console.log('Error sending data: ' + error.message);
@@ -478,29 +485,33 @@ function Signup() {
     }
 
     return (
-        <div>
+        <div className="login-signup">
             <h1> Signup </h1>
             <form ref={formRef} onSubmit={handleSubmit}>
                 Invite Code <br/>
                 <input
+                    className="login-signup-input"
                     type="text"
                     name="invite_code"
                     onChange={handleInviteCode}
                 /> <br/>
                 First Name <br/>
                 <input
+                    className="login-signup-input"
                     type="text"
                     name="firstname"
                     onChange={handleFirstName}
                 /> <br/>
                 Last Name <br/>
                 <input
+                    className="login-signup-input"
                     type="text"
                     name="lastname"
                     onChange={handleLastName}
                 /> <br/>
                 Email <br/>
                 <input
+                    className="login-signup-input"
                     type="email"
                     name="email"
                     required
@@ -508,6 +519,7 @@ function Signup() {
                 /> <br/>            
                 Password <br/>
                 <input
+                    className="login-signup-input"
                     type="password"
                     name="user_password"
                     onChange={handlePassword}              
@@ -669,7 +681,7 @@ function Wishlist() {
     if (error) return <p>Error: {error.message}</p>;
     
     return (
-        <div>
+        <div className="app-body"> 
             <h1>{wishlistData.user.first}'s Wishlist</h1>
             <div className="wishlist-button-container">
                 <WishlistSelector/>
@@ -700,15 +712,13 @@ function Root() {
 export default function App() {
     return (
         <div className="top-container">
-            <div className="app-body"> 
-                <BrowserRouter>
-                    <Routes>
-                        <Route path="/" element={<Root/>} />
-                        <Route path="login" element={<Login/>}/>
-                        <Route path="signup" element={<Signup/>}/>
-                        <Route path="wishlist/:userId" element={<Wishlist/>}/>
-                    </Routes>
-                </BrowserRouter>
-            </div>
+            <BrowserRouter>
+                <Routes>
+                    <Route path="/" element={<Root/>} />
+                    <Route path="login" element={<Login/>}/>
+                    <Route path="signup" element={<Signup/>}/>
+                    <Route path="wishlist/:userId" element={<Wishlist/>}/>
+                </Routes>
+            </BrowserRouter>
         </div>)
 }
