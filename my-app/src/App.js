@@ -86,9 +86,18 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                 </button>
 
                 <dialog ref={dialogRef}>
+                    <button
+                        onClick={() => dialogRef.current.close()}
+                        title="Close window">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
+                            <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+                        </svg>
+                    </button>
+
                     <h1> Edit {isOwner ? "Wishlist Entry" : "Buyer Notes"} </h1>
                     {isOwner ?
                      <>
+                         <div className="input-pair-div">
                          Description <br/>
                          <input
                              type="text"
@@ -97,6 +106,8 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                              value={formState.description !== undefined ? formState.description : row.description}
                              onChange={(event) => updateField("description", event.target.value)}
                          /> <br/>
+                         </div>
+                         <div className="input-pair-div">
                          Source <br/>
                          <input
                              type="text"
@@ -105,6 +116,8 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                              value={formState.source !== undefined ? formState.source : row.source}
                              onChange={(event) => updateField("source", event.target.value)}
                          /> <br/>
+                         </div>
+                         <div className="input-pair-div">
                          Cost <br/>
                          <input
                              type="text"
@@ -112,7 +125,9 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                              className="login-signup-input"
                              value={formState.cost !== undefined ? formState.cost : row.cost}
                              onChange={(event) => updateField("cost", event.target.value)}
-                         /> <br/>            
+                         /> <br/>
+                         </div>
+                         <div className="input-pair-div">
                          Notes <br/>
                          <input
                              type="text"
@@ -121,9 +136,11 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                              value={formState.owner_notes !== undefined ? formState.owner_notes : row.owner_notes ? row.owner_notes : ""}
                              onChange={(event) => updateField("owner_notes", event.target.value)}
                          />
+                         </div>
                      </>
                      : /* !isOwner */
                      <>
+                         <div className="input-pair-div">
                          Buyer Notes <br/>
                          <input
                              type="text"
@@ -132,6 +149,7 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                              value={formState.buyer_notes !== undefined ? formState.buyer_notes : row.buyer_notes ? row.buyer_notes : ""}
                              onChange={(event) => updateField("buyer_notes", event.target.value)}
                          />
+                         </div>
                      </>
                     }
                     <br/>
@@ -161,7 +179,7 @@ function WishlistRow({row, isOwner, setWishlistUpToDate}) {
     const date = new Date(row.creation_time)
     
     return (<div className="wishlist-item-container">
-                <div className="wishlist-item-header-footer">
+                <div className="flex-header-footer">
                     <h3 className="wishlist-item-name"> {row.description} </h3>
                     <p className="wishlist-data"> {row.cost} </p>
                 </div>
@@ -169,7 +187,7 @@ function WishlistRow({row, isOwner, setWishlistUpToDate}) {
                 <p className="wishlist-data"> <MaybeUrl url={row.source}/> </p>
                 <p className="wishlist-notes"> {row.owner_notes} </p>
                 {isOwner ? null : <p className="wishlist-notes"> {row.buyer_notes} </p>}
-                <div className="wishlist-item-header-footer">
+                <div className="flex-header-footer">
                     <EditWishlistEntryButton
                         row={row}
                         isOwner={isOwner}
@@ -278,11 +296,20 @@ function WishlistAdder({setWishlistUpToDate}) {
             </button>
 
             <dialog ref={dialogRef}>
+                                    <button
+                        onClick={() => dialogRef.current.close()}
+                        title="Close window">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
+                            <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+                        </svg>
+                    </button>
+
                             <h1> Add to Wishlist </h1>
             Description <br/>
             <input
                 type="text"
                 name="description"
+                className="login-signup-input"
                 value={formState.description}
                 onChange={handleDescription}
             /> <br/>
@@ -290,6 +317,7 @@ function WishlistAdder({setWishlistUpToDate}) {
             <input
                 type="text"
                 name="source"
+                className="login-signup-input"
                 value={formState.source}
                 onChange={handleSource}
             /> <br/>
@@ -297,6 +325,7 @@ function WishlistAdder({setWishlistUpToDate}) {
             <input
                 type="text"
                 name="cost"
+                className="login-signup-input"
                 value={formState.cost}
                 onChange={handleCost}
             /> <br/>            
@@ -304,6 +333,7 @@ function WishlistAdder({setWishlistUpToDate}) {
             <input
                 type="text"
                 name="notes"
+                className="login-signup-input"
                 value={formState.owner_notes}
                 onChange={handleOwnerNotes}              
             /> <br/>
@@ -609,6 +639,14 @@ function WishlistSelector() {
                     </svg>
             </button>
             <dialog ref={dialogRef}>
+                                    <button
+                        onClick={() => dialogRef.current.close()}
+                        title="Close window">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
+                            <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+                        </svg>
+                    </button>
+
             <h1>Choose Wishlist Owner</h1>
             <table>
                 <tbody>
