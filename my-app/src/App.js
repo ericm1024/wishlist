@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Link, NavLink, Routes, Route, useNavigate, useParams, useSearchParams } from "react-router";
+import { EditIcon, TrashIcon, XIcon, PlusIcon, ThreeDotsIcon } from './icons';
 
 function DeleteWishlistEntryButton({rowId, setWishlistUpToDate}) {
     async function doDelete() {
@@ -26,13 +27,7 @@ function DeleteWishlistEntryButton({rowId, setWishlistUpToDate}) {
     return (<button
                 onClick={doDelete}
                 title="Delete wishlist entry">
-                {/*
-                  * this is from here https://icons.getbootstrap.com/icons/trash/
-                  */}
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
-                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>
-                    <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>
-                </svg>
+                <TrashIcon/>
             </button>);
 }
 
@@ -76,22 +71,14 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                 <button
                     onClick={() => dialogRef.current.showModal()}
                     title="Edit wishlist entry">
-                    {/*
-                      * this is from here https://icons.getbootstrap.com/icons/pencil/
-                      */}
-                    
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
-                        <path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325"/>
-                    </svg>
+                    <EditIcon/>
                 </button>
 
                 <dialog ref={dialogRef}>
                     <button
                         onClick={() => dialogRef.current.close()}
                         title="Close window">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
-                            <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
-                        </svg>
+                        <XIcon/>
                     </button>
 
                     <h1> Edit {isOwner ? "Wishlist Entry" : "Buyer Notes"} </h1>
@@ -287,62 +274,54 @@ function WishlistAdder({setWishlistUpToDate}) {
         <div>
             <button onClick={() => dialogRef.current.showModal()}
                     title="Add item to wishlist">
-                {/*
-                  * This is from https://icons.getbootstrap.com/icons/plus-lg/
-                  */}
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
-                    <path fillRule="evenodd" d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2"/>
-                </svg>
+                <PlusIcon/>
             </button>
 
             <dialog ref={dialogRef}>
-                                    <button
-                        onClick={() => dialogRef.current.close()}
+                <button onClick={() => dialogRef.current.close()}
                         title="Close window">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
-                            <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
-                        </svg>
-                    </button>
+                    <XIcon/>
+                </button>
 
-                            <h1> Add to Wishlist </h1>
-            Description <br/>
-            <input
-                type="text"
-                name="description"
-                className="login-signup-input"
-                value={formState.description}
-                onChange={handleDescription}
-            /> <br/>
-            Source <br/>
-            <input
-                type="text"
-                name="source"
-                className="login-signup-input"
-                value={formState.source}
-                onChange={handleSource}
-            /> <br/>
-            Cost <br/>
-            <input
-                type="text"
-                name="cost"
-                className="login-signup-input"
-                value={formState.cost}
-                onChange={handleCost}
-            /> <br/>            
-            Notes <br/>
-            <input
-                type="text"
-                name="notes"
-                className="login-signup-input"
-                value={formState.owner_notes}
-                onChange={handleOwnerNotes}              
-            /> <br/>
-            <button onClick={doPost}>
-                Add Item
-            </button>
-            {postResponse && <p>{postResponse}</p>}
+                <h1> Add to Wishlist </h1>
+                Description <br/>
+                <input
+                    type="text"
+                    name="description"
+                    className="login-signup-input"
+                    value={formState.description}
+                    onChange={handleDescription}
+                /> <br/>
+                Source <br/>
+                <input
+                    type="text"
+                    name="source"
+                    className="login-signup-input"
+                    value={formState.source}
+                    onChange={handleSource}
+                /> <br/>
+                Cost <br/>
+                <input
+                    type="text"
+                    name="cost"
+                    className="login-signup-input"
+                    value={formState.cost}
+                    onChange={handleCost}
+                /> <br/>            
+                Notes <br/>
+                <input
+                    type="text"
+                    name="notes"
+                    className="login-signup-input"
+                    value={formState.owner_notes}
+                    onChange={handleOwnerNotes}              
+                /> <br/>
+                <button onClick={doPost}>
+                    Add Item
+                </button>
+                {postResponse && <p>{postResponse}</p>}
 
-      </dialog>            
+            </dialog>            
         </div>
     );
 }
@@ -631,22 +610,15 @@ function WishlistSelector() {
             <button
                 onClick={() => dialogRef.current.showModal()}
                 title="Choose Wishlist Owner">
-                {/*
-                  * 
-                  */}
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
-                        <path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/>
-                    </svg>
+                <ThreeDotsIcon/>
             </button>
             <dialog ref={dialogRef}>
-                                    <button
-                        onClick={() => dialogRef.current.close()}
-                        title="Close window">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
-                            <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
-                        </svg>
-                    </button>
-
+                <button
+                    onClick={() => dialogRef.current.close()}
+                    title="Close window">
+                    <XIcon/>
+                </button>
+                
             <h1>Choose Wishlist Owner</h1>
             <table>
                 <tbody>
