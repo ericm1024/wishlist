@@ -23,14 +23,12 @@ UI/UX improvements
 * automatic session extension
 * smaller rendered wishlist entries -- fit more on one page
 * larger dialog box for wishlist editing
-* import from vistes.com
 * client UI to list & delete sessions
 * wishlist sorting UI
 * optimize round-trips for page loading
 * modal dialog close button + close on click-out
 * dynamic client-side update (listener API)
 * client-side error handling design
-* click-to-exit + exit button for modal dialogs
 
 dev/hygiene
 -----------

@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	WishlistAdmin_GenerateInviteCode_FullMethodName = "/admin.WishlistAdmin/GenerateInviteCode"
+	WishlistAdmin_VistesImport_FullMethodName       = "/admin.WishlistAdmin/VistesImport"
 )
 
 // WishlistAdminClient is the client API for WishlistAdmin service.
@@ -28,6 +29,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WishlistAdminClient interface {
 	GenerateInviteCode(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*IvniteCodeReply, error)
+	VistesImport(ctx context.Context, in *ImportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type wishlistAdminClient struct {
@@ -48,11 +50,22 @@ func (c *wishlistAdminClient) GenerateInviteCode(ctx context.Context, in *emptyp
 	return out, nil
 }
 
+func (c *wishlistAdminClient) VistesImport(ctx context.Context, in *ImportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, WishlistAdmin_VistesImport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WishlistAdminServer is the server API for WishlistAdmin service.
 // All implementations must embed UnimplementedWishlistAdminServer
 // for forward compatibility.
 type WishlistAdminServer interface {
 	GenerateInviteCode(context.Context, *emptypb.Empty) (*IvniteCodeReply, error)
+	VistesImport(context.Context, *ImportRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedWishlistAdminServer()
 }
 
@@ -65,6 +78,9 @@ type UnimplementedWishlistAdminServer struct{}
 
 func (UnimplementedWishlistAdminServer) GenerateInviteCode(context.Context, *emptypb.Empty) (*IvniteCodeReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GenerateInviteCode not implemented")
+}
+func (UnimplementedWishlistAdminServer) VistesImport(context.Context, *ImportRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VistesImport not implemented")
 }
 func (UnimplementedWishlistAdminServer) mustEmbedUnimplementedWishlistAdminServer() {}
 func (UnimplementedWishlistAdminServer) testEmbeddedByValue()                       {}
@@ -105,6 +121,24 @@ func _WishlistAdmin_GenerateInviteCode_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WishlistAdmin_VistesImport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WishlistAdminServer).VistesImport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WishlistAdmin_VistesImport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WishlistAdminServer).VistesImport(ctx, req.(*ImportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WishlistAdmin_ServiceDesc is the grpc.ServiceDesc for WishlistAdmin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -115,6 +149,10 @@ var WishlistAdmin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GenerateInviteCode",
 			Handler:    _WishlistAdmin_GenerateInviteCode_Handler,
+		},
+		{
+			MethodName: "VistesImport",
+			Handler:    _WishlistAdmin_VistesImport_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

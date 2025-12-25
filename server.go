@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -16,7 +17,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/mail"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -28,6 +31,9 @@ import (
 
 	"github.com/ericm1024/wishlist/admin_rpc"
 	"github.com/matthewhartstonge/argon2"
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
+	"golang.org/x/net/publicsuffix"
 	grpc "google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
@@ -1043,6 +1049,252 @@ func (s *adminGrpcServer) GenerateInviteCode(ctx context.Context, in *emptypb.Em
 	}
 
 	return &admin_rpc.IvniteCodeReply{Code: base64.URLEncoding.EncodeToString(inviteCode)}, nil
+}
+
+func findNode(node *html.Node, visitor func(*html.Node) bool) *html.Node {
+	if node == nil {
+		return nil
+	}
+	if visitor(node) {
+		return node
+	}
+	for node := node.FirstChild; node != nil; node = node.NextSibling {
+		ret := findNode(node, visitor)
+		if ret != nil {
+			return ret
+		}
+	}
+	return nil
+}
+
+func parseCreateTime(node *html.Node, ret *time.Time) error {
+	if node == nil {
+		return errors.New("nill node parsing time")
+	}
+	parsedTime, err := time.Parse("1/2/2006 3:04:05 PM", node.Data)
+	if err != nil {
+		return errors.New(fmt.Sprintf("error parsing timestamp: %s, %v", node.Data, err))
+	}
+	*ret = parsedTime
+	return nil
+}
+
+func parseString(node *html.Node, ret *string) error {
+	if node == nil {
+		// allowed to be empty
+		*ret = ""
+		return nil
+	}
+	*ret = node.Data
+	return nil
+}
+
+type VistesWishlistRow struct {
+	CreateTime  time.Time
+	Description string
+	Source      string
+	Cost        string
+	Comments    string
+}
+
+func (r VistesWishlistRow) String() string {
+	return fmt.Sprintf("time='%v', desc='%v', source='%v', cost='%v', comments='%v'",
+		r.CreateTime, r.Description, r.Source, r.Cost, r.Comments)
+}
+
+// parse e.g. one of these
+// <tr>
+//
+//	<td><a href=
+//	"item.asp?Action=Edit&amp;Item=3730">3730</a></td>
+//	<td>eric</td>
+//	<td>9/23/2025 9:42:41 PM</td>
+//	<td>swim</td>
+//	<td>Sporti Bungee Strap</td>
+//	<td>
+//	https://www.swimoutlet.com/products/sporti-bungee-strap-21092/?color=black</td>
+//	<td>$2.95</td>
+//	<td>could use one black, one red</td>
+//
+// </tr>
+func parseVistesRow(node *html.Node) (*VistesWishlistRow, error) {
+	if node.Type != html.ElementNode || node.DataAtom != atom.Tr {
+		return nil, errors.New("node is not a <tr>")
+	}
+
+	// cols are edit link, owner, create time, category, decription, source, cost, comments
+	ret := &VistesWishlistRow{}
+	col := 0
+	for child := range node.ChildNodes() {
+		if child.Type != html.ElementNode || child.DataAtom != atom.Td {
+			continue
+		}
+		switch col {
+		case 0, 1, 3: // edit link, owner, category
+			break
+		case 2: // create time
+			err := parseCreateTime(child.FirstChild, &ret.CreateTime)
+			if err != nil {
+				return nil, err
+			}
+		case 4: // description
+			err := parseString(child.FirstChild, &ret.Description)
+			if err != nil {
+				return nil, err
+			}
+		case 5: // source
+			err := parseString(child.FirstChild, &ret.Source)
+			if err != nil {
+				return nil, err
+			}
+		case 6: // cost
+			err := parseString(child.FirstChild, &ret.Cost)
+			if err != nil {
+				return nil, err
+			}
+		case 7: // comments
+			err := parseString(child.FirstChild, &ret.Comments)
+			if err != nil {
+				return nil, err
+			}
+		}
+		col++
+	}
+	return ret, nil
+}
+
+// curl -c cookies.txt -d "username=eric&password=tonimu" "http://vistes.com/sqlwishlist/verify_user_name_and_password.asp"
+// curl -X GET -b cookies.txt 'http://vistes.com/sqlwishlist/get_wishlist.asp?Item=eric'
+// curl -X GET -b cookies.txt 'http://vistes.com/sqlwishlist/Database1_interface/wishlists/editor/list.asp'
+func (s *adminGrpcServer) VistesImport(ctx context.Context, in *admin_rpc.ImportRequest) (*emptypb.Empty, error) {
+	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second, Jar: jar}
+
+	// Login
+	u, err := url.Parse("http://vistes.com/sqlwishlist/verify_user_name_and_password.asp")
+	if err != nil {
+		return nil, err
+	}
+	q := u.Query()
+	q.Set("username", in.Username)
+	q.Set("password", in.Password)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequest("POST", u.String(), strings.NewReader(""))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "text/plain")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body.Close()
+
+	// Fetch wishlist
+	u, err = url.Parse("http://vistes.com/sqlwishlist/get_wishlist.asp")
+	if err != nil {
+		return nil, err
+	}
+	q = u.Query()
+	q.Set("Item", in.Username)
+	u.RawQuery = q.Encode()
+
+	req, err = http.NewRequest("GET", u.String(), strings.NewReader(""))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "text/plain")
+
+	resp, err = client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body.Close()
+
+	// Read wishlist
+	u, err = url.Parse("http://vistes.com/sqlwishlist/Database1_interface/wishlists/editor/list.asp")
+	if err != nil {
+		return nil, err
+	}
+
+	req, err = http.NewRequest("GET", u.String(), strings.NewReader(""))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "text/plain")
+
+	resp, err = client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	buf, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	s.Logger.Printf("response %s", string(buf))
+
+	doc, err := html.Parse(bytes.NewReader(buf))
+	if err != nil {
+		return nil, err
+	}
+
+	wishlistTable := findNode(doc, func(n *html.Node) bool {
+		return n.Type == html.ElementNode && n.DataAtom == atom.Table &&
+			len(n.Attr) >= 3 && n.Attr[0].Key == "border" && n.Attr[0].Val == "1" &&
+			n.Attr[1].Key == "cellspacing" && n.Attr[1].Val == "3" &&
+			n.Attr[2].Key == "cellpadding" && n.Attr[2].Val == "3"
+	})
+	if wishlistTable == nil {
+		return nil, errors.New("could not find wishlist table in response")
+	}
+
+	s.Logger.Printf("wishlistTable %v", *wishlistTable)
+
+	startingRow := wishlistTable.FirstChild.FirstChild
+	if startingRow != nil {
+		s.Logger.Printf("startingRow %v", *startingRow)
+		startingRow = startingRow.NextSibling
+	}
+	if startingRow != nil {
+		s.Logger.Printf("startingRow %v", *startingRow)
+		startingRow = startingRow.NextSibling
+	}
+	if startingRow == nil {
+		return nil, errors.New("could not find starting row")
+	}
+
+	var parsedRows []VistesWishlistRow
+	for row := startingRow; row != nil; row = row.NextSibling {
+		parsedRow, err := parseVistesRow(row)
+		if err != nil {
+			return nil, err
+		}
+		parsedRows = append(parsedRows, *parsedRow)
+	}
+
+	stmt, err := s.Db.Prepare("INSERT INTO wishlist(creation_time, user_id, description, source, cost, owner_notes) VALUES(?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+
+	for _, row := range parsedRows {
+		_, err := stmt.Exec(row.CreateTime, in.UserId, row.Description, row.Source, row.Cost, row.Comments)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &emptypb.Empty{}, nil
 }
 
 func run(ctx context.Context, w io.Writer, args []string) error {

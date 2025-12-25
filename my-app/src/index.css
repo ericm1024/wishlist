@@ -27,7 +27,7 @@ border:1px solid #000000;
 }
 
 .app-body {
-    min-width: min(300px, 90%);
+    min-width: clamp(300px, 90%, 600px);
 }
 
 .wishlist-button-container {
@@ -51,7 +51,7 @@ border:1px solid #000000;
     border-radius: 5px;
 }
 
-.wishlist-item-header-footer {
+.flex-header-footer {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
@@ -78,4 +78,13 @@ border:1px solid #000000;
 
 .wishlist-data {
     margin: 2px;
+}
+
+.input-heading {
+    font-weight: bold;
+}
+
+.input-pair-div {
+    padding-top: 6px;
+    padding-bottom: 6px;    
 }

@@ -8,8 +8,15 @@ option go_package = "./admin_rpc";
 
 service WishlistAdmin {
   rpc GenerateInviteCode (google.protobuf.Empty) returns (IvniteCodeReply) {}
+  rpc VistesImport (ImportRequest) returns (google.protobuf.Empty) {}
 }
 
 message IvniteCodeReply {
   string code = 1;
+}
+
+message ImportRequest {
+  string username = 1;
+  string password = 2;
+  uint64 userId = 3;
 }

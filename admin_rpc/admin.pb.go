@@ -66,15 +66,80 @@ func (x *IvniteCodeReply) GetCode() string {
 	return ""
 }
 
+type ImportRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	Password      string                 `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
+	UserId        uint64                 `protobuf:"varint,3,opt,name=userId,proto3" json:"userId,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImportRequest) Reset() {
+	*x = ImportRequest{}
+	mi := &file_admin_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImportRequest) ProtoMessage() {}
+
+func (x *ImportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImportRequest.ProtoReflect.Descriptor instead.
+func (*ImportRequest) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ImportRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *ImportRequest) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+func (x *ImportRequest) GetUserId() uint64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
 var File_admin_proto protoreflect.FileDescriptor
 
 const file_admin_proto_rawDesc = "" +
 	"\n" +
 	"\vadmin.proto\x12\x05admin\x1a\x1bgoogle/protobuf/empty.proto\"%\n" +
 	"\x0fIvniteCodeReply\x12\x12\n" +
-	"\x04code\x18\x01 \x01(\tR\x04code2W\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\"_\n" +
+	"\rImportRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x16\n" +
+	"\x06userId\x18\x03 \x01(\x04R\x06userId2\x97\x01\n" +
 	"\rWishlistAdmin\x12F\n" +
-	"\x12GenerateInviteCode\x12\x16.google.protobuf.Empty\x1a\x16.admin.IvniteCodeReply\"\x00B\rZ\v./admin_rpcb\x06proto3"
+	"\x12GenerateInviteCode\x12\x16.google.protobuf.Empty\x1a\x16.admin.IvniteCodeReply\"\x00\x12>\n" +
+	"\fVistesImport\x12\x14.admin.ImportRequest\x1a\x16.google.protobuf.Empty\"\x00B\rZ\v./admin_rpcb\x06proto3"
 
 var (
 	file_admin_proto_rawDescOnce sync.Once
@@ -88,16 +153,19 @@ func file_admin_proto_rawDescGZIP() []byte {
 	return file_admin_proto_rawDescData
 }
 
-var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_admin_proto_goTypes = []any{
 	(*IvniteCodeReply)(nil), // 0: admin.IvniteCodeReply
-	(*emptypb.Empty)(nil),   // 1: google.protobuf.Empty
+	(*ImportRequest)(nil),   // 1: admin.ImportRequest
+	(*emptypb.Empty)(nil),   // 2: google.protobuf.Empty
 }
 var file_admin_proto_depIdxs = []int32{
-	1, // 0: admin.WishlistAdmin.GenerateInviteCode:input_type -> google.protobuf.Empty
-	0, // 1: admin.WishlistAdmin.GenerateInviteCode:output_type -> admin.IvniteCodeReply
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
+	2, // 0: admin.WishlistAdmin.GenerateInviteCode:input_type -> google.protobuf.Empty
+	1, // 1: admin.WishlistAdmin.VistesImport:input_type -> admin.ImportRequest
+	0, // 2: admin.WishlistAdmin.GenerateInviteCode:output_type -> admin.IvniteCodeReply
+	2, // 3: admin.WishlistAdmin.VistesImport:output_type -> google.protobuf.Empty
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -114,7 +182,7 @@ func file_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_admin_proto_rawDesc), len(file_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
