@@ -32,11 +32,11 @@ function DeleteWishlistEntryButton({rowId, setWishlistUpToDate}) {
 }
 
 function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
-    const [formState, setFormState] = useState(structuredClone(row));
+    const [formState, setFormState] = useState({});
     const [patchResponse, setPostResponse] = useState('');
 
     const dialogRef = useRef(null);
-
+    
     function updateField(field, value) {
         let copy = structuredClone(formState)
         copy[field] = value
@@ -80,7 +80,10 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
 
     return (<>
                 <button
-                    onClick={() => dialogRef.current.showModal()}
+                    onClick={() => {
+                        dialogRef.current.showModal()
+                        setFormState(structuredClone(row))
+                    }}
                     title="Edit wishlist entry">
                     <EditIcon/>
                 </button>
@@ -179,15 +182,16 @@ function WishlistItems({wishlistData, setWishlistUpToDate, loggedInUserInfo}) {
     );
 }
 
-function FormField({title, name, state, update}) {
+function FormField({title, name, state, update, disabled, type}) {
     return (<div className="input-pair-div">
                 {title}
                 <br/>
                 <input
-                    type="text"
                     name={name}
                     className="login-signup-input"
                     value={state[name] ?? ""}
+                    disabled={disabled ?? false}
+                    type={type ?? "text"}
                     onChange={(event) => update(name, event.target.value)}
                 />
                 <br/>
@@ -259,20 +263,17 @@ function WishlistAdder({setWishlistUpToDate}) {
 
 
 function Login() {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
+    const [formState, setFormState] = useState({});
     const [loginError, setLoginError] = useState('');
     const [doLogin, setDoLogin] = useState(null);
     let navigate = useNavigate();
     const [searchParams, ] = useSearchParams();
 
-    function handleEmail(event) {
-        setEmail(event.target.value);
-    };
-
-    function handlePassword(event) {
-        setPassword(event.target.value);
-    };
+    function updateField(field, value) {
+        let copy = structuredClone(formState)
+        copy[field] = value
+        setFormState(copy)
+    }
 
     useEffect(() => {
         if (!doLogin) {
@@ -286,10 +287,7 @@ function Login() {
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        "email": email,
-                        "password": password
-                    })
+                    body: JSON.stringify(formState)
                 });
                 
                 const data = await response.json()
@@ -312,27 +310,13 @@ function Login() {
             setDoLogin(false);
         }
         login();
-    }, [doLogin, email, navigate, searchParams, password]);
+    }, [formState, doLogin, navigate, searchParams]);
 
     return (
         <div className="login-signup">
             <h1> Login </h1>
-            Email <br/>
-            <input
-                className="login-signup-input"
-                type="email"
-                name="email"
-                onChange={handleEmail}
-                disabled={doLogin}
-            /> <br/>
-            Password <br/>
-            <input
-                className="login-signup-input"
-                type="password"
-                name="user_password"
-                onChange={handlePassword}
-                disabled={doLogin}
-            /> <br/>
+            <FormField title="Email" name="email" state={formState} update={updateField} disabled={doLogin}/>
+            <FormField title="Password" name="password" state={formState} update={updateField} disabled={doLogin}/>
             <button onClick={() => setDoLogin(true)}
                     disabled={doLogin}>
                 Submit
@@ -351,51 +335,18 @@ function Login() {
 }
 
 function Signup() {
-    const [formState, setFormState] = useState({
-        invite_code: '',
-        first: '',
-        last: '',
-        email: '',
-        password: ''
-    });
     const formRef = useRef(null);
+    const [searchParams, ] = useSearchParams();
+    let inviteCodeURL = searchParams.get("invite_code")
+    const [formState, setFormState] = useState({invite_code : inviteCodeURL ?? ""})
     let navigate = useNavigate();
 
-    function handleInviteCode(event) {
-        setFormState(formState => ({
-            ...formState,
-            invite_code: event.target.value
-        }))
-    };
+    function updateField(field, value) {
+        let copy = structuredClone(formState)
+        copy[field] = value
+        setFormState(copy)
+    }    
     
-    function handleFirstName(event) {
-        setFormState(formState => ({
-            ...formState,
-            first: event.target.value
-        }))
-    };
-
-    function handleLastName(event) {
-        setFormState(formState => ({
-            ...formState,
-            last: event.target.value
-        }))
-    };
-
-    function handleEmail(event) {
-        setFormState(formState => ({
-            ...formState,
-            email: event.target.value
-        }))
-    };
-
-    function handlePassword(event) {
-        setFormState(formState => ({
-            ...formState,
-            password: event.target.value
-        }))
-    };
-
     async function handleSubmit(event) {
         event.preventDefault();
         if (!formRef.current.checkValidity()) {
@@ -411,14 +362,16 @@ function Signup() {
                 body: JSON.stringify(formState)
             });
 
-            const data = await response.json()
+            const data = await response.text()
             
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
-            localStorage.setItem("userInfo", JSON.stringify(data));
-            navigate("/wishlist/" + data.id)
+            var parsed = JSON.parse(data)
+
+            localStorage.setItem("userInfo", data);
+            navigate("/wishlist/" + parsed.id)
         } catch (error) {
             console.log('Error sending data: ' + error.message);
         }
@@ -428,42 +381,17 @@ function Signup() {
         <div className="login-signup">
             <h1> Signup </h1>
             <form ref={formRef} onSubmit={handleSubmit}>
-                Invite Code <br/>
-                <input
-                    className="login-signup-input"
-                    type="text"
+                <FormField
+                    title="Invite Code"
                     name="invite_code"
-                    onChange={handleInviteCode}
-                /> <br/>
-                First Name <br/>
-                <input
-                    className="login-signup-input"
-                    type="text"
-                    name="firstname"
-                    onChange={handleFirstName}
-                /> <br/>
-                Last Name <br/>
-                <input
-                    className="login-signup-input"
-                    type="text"
-                    name="lastname"
-                    onChange={handleLastName}
-                /> <br/>
-                Email <br/>
-                <input
-                    className="login-signup-input"
-                    type="email"
-                    name="email"
-                    required
-                    onChange={handleEmail}
-                /> <br/>            
-                Password <br/>
-                <input
-                    className="login-signup-input"
-                    type="password"
-                    name="user_password"
-                    onChange={handlePassword}              
-                /> <br/>
+                    state={formState}
+                    update={updateField}
+                    disabled={inviteCodeURL !== null}
+                />
+                <FormField title="First Name" name="first" state={formState} update={updateField}/>
+                <FormField title="Last Name" name="last" state={formState} update={updateField}/>
+                <FormField title="Email" name="email" state={formState} update={updateField}/>
+                <FormField title="Password" name="password" state={formState} update={updateField} type="password"/>
                 <input type="submit" value="Signup" />             
             </form>
             <p> Already have an account? </p>

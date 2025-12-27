@@ -28,6 +28,7 @@ border:1px solid #000000;
 }
 
 .app-body {
+    min-width: 300px;
     max-width: clamp(300px, 95%, 600px);
 }
 
@@ -61,6 +62,7 @@ border:1px solid #000000;
     font-size: 85%;
     color: #585858;
     margin: 2px;
+    word-break: break-all;    
 }
 
 .login-signup {
@@ -74,10 +76,12 @@ border:1px solid #000000;
 
 .wishlist-item-name {
     margin: 2px;
+    word-break: break-all;
 }
 
 .wishlist-data {
     margin: 2px;
+    word-break: break-all;
 }
 
 .input-heading {
