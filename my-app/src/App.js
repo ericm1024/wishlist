@@ -316,7 +316,7 @@ function Login() {
         <div className="login-signup">
             <h1> Login </h1>
             <FormField title="Email" name="email" state={formState} update={updateField} disabled={doLogin}/>
-            <FormField title="Password" name="password" state={formState} update={updateField} disabled={doLogin}/>
+            <FormField title="Password" name="password" state={formState} update={updateField} disabled={doLogin} type="password"/>
             <button onClick={() => setDoLogin(true)}
                     disabled={doLogin}>
                 Submit
