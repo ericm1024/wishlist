@@ -156,9 +156,10 @@ func TestSignup(t *testing.T) {
 	}
 
 	logger := log.Default()
+	config := Config{}
 	db := initDb(logger, ":memory:")
 	defer db.Close()
-	handler := handleSignup(logger, db)
+	handler := handleSignup(logger, &config, db)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
