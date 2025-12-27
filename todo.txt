@@ -21,7 +21,6 @@ hardening
 UI/UX improvements
 ------------------
 * automatic session extension
-* smaller rendered wishlist entries -- fit more on one page
 * larger dialog box for wishlist editing
 * client UI to list & delete sessions
 * wishlist sorting UI
@@ -29,6 +28,7 @@ UI/UX improvements
 * modal dialog close button + close on click-out
 * dynamic client-side update (listener API)
 * client-side error handling design
+* don't load users list until drop-down is opened
 
 dev/hygiene
 -----------

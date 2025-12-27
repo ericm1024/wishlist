@@ -32,8 +32,8 @@ function DeleteWishlistEntryButton({rowId, setWishlistUpToDate}) {
 }
 
 function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
-    const [formState, setFormState] = useState({});
-    const [patchResponse, setPostResponse] = useState('');      
+    const [formState, setFormState] = useState(structuredClone(row));
+    const [patchResponse, setPostResponse] = useState('');
 
     const dialogRef = useRef(null);
 
@@ -45,14 +45,23 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
     
     async function doPatch() {
         try {
+            var patchBody = {
+                id: row.id,
+                seq: row.seq,
+            }
+            for (const [key, rowValue] of Object.entries(row)) {
+                var formValue = formState[key]
+                if (formValue !== rowValue) {
+                    patchBody[key] = formValue
+                }
+            }
+            
             const response = await fetch('/api/wishlist', {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({...formState,
-                                      "id": row.id,
-                                      "seq": row.seq})
+                body: JSON.stringify(patchBody)
             });
 
             if (!response.ok) {
@@ -66,6 +75,8 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
             setPostResponse('Error sending data: ' + error.message);
         }
     }
+
+    var hasChanges = JSON.stringify(formState) !== JSON.stringify(row);
 
     return (<>
                 <button
@@ -84,63 +95,17 @@ function EditWishlistEntryButton({row, isOwner, setWishlistUpToDate}) {
                     <h1> Edit {isOwner ? "Wishlist Entry" : "Buyer Notes"} </h1>
                     {isOwner ?
                      <>
-                         <div className="input-pair-div">
-                         Description <br/>
-                         <input
-                             type="text"
-                             name="description"
-                             className="login-signup-input"
-                             value={formState.description !== undefined ? formState.description : row.description}
-                             onChange={(event) => updateField("description", event.target.value)}
-                         /> <br/>
-                         </div>
-                         <div className="input-pair-div">
-                         Source <br/>
-                         <input
-                             type="text"
-                             name="source"
-                             className="login-signup-input"
-                             value={formState.source !== undefined ? formState.source : row.source}
-                             onChange={(event) => updateField("source", event.target.value)}
-                         /> <br/>
-                         </div>
-                         <div className="input-pair-div">
-                         Cost <br/>
-                         <input
-                             type="text"
-                             name="cost"
-                             className="login-signup-input"
-                             value={formState.cost !== undefined ? formState.cost : row.cost}
-                             onChange={(event) => updateField("cost", event.target.value)}
-                         /> <br/>
-                         </div>
-                         <div className="input-pair-div">
-                         Notes <br/>
-                         <input
-                             type="text"
-                             name="owner_notes"
-                             className="login-signup-input"
-                             value={formState.owner_notes !== undefined ? formState.owner_notes : row.owner_notes ? row.owner_notes : ""}
-                             onChange={(event) => updateField("owner_notes", event.target.value)}
-                         />
-                         </div>
+                         <FormField title="Description" name="description" state={formState} update={updateField}/>
+                         <FormField title="Source" name="source" state={formState} update={updateField}/>
+                         <FormField title="Cost" name="cost" state={formState} update={updateField}/>
+                         <FormField title="Notes" name="owner_notes" state={formState} update={updateField}/>
                      </>
                      : /* !isOwner */
-                     <>
-                         <div className="input-pair-div">
-                         Buyer Notes <br/>
-                         <input
-                             type="text"
-                             name="buyer_notes"
-                             className="login-signup-input"
-                             value={formState.buyer_notes !== undefined ? formState.buyer_notes : row.buyer_notes ? row.buyer_notes : ""}
-                             onChange={(event) => updateField("buyer_notes", event.target.value)}
-                         />
-                         </div>
-                     </>
+                     <FormField title="Buyer Notes" name="buyer_notes" state={formState} update={updateField}/>
                     }
-                    <br/>
-                    <button onClick={doPatch}>
+                    <button onClick={doPatch}
+                            disabled={!hasChanges}
+                    >
                         Update Item
                     </button>
                     {patchResponse && <p>{patchResponse}</p>}
@@ -154,7 +119,9 @@ function MaybeUrl({url}) {
     try {
         var urlObj = new URL(url);
         if (urlObj.protocol === "http:" || urlObj.protocol === "https:") {
-            return <a href={url} target="_blank" rel="noopener noreferrer">{url}</a>
+            return <a href={url} target="_blank" rel="noopener noreferrer" className="wishlist-link">
+                       {url}
+                   </a>
         }
     } catch (_) {
     }
@@ -166,24 +133,33 @@ function WishlistRow({row, isOwner, setWishlistUpToDate}) {
     const date = new Date(row.creation_time)
     
     return (<div className="wishlist-item-container">
-                <div className="flex-header-footer">
-                    <h3 className="wishlist-item-name"> {row.description} </h3>
-                    <p className="wishlist-data"> {row.cost} </p>
-                </div>
-                <p className="wishlist-data"> Added {date.toDateString()} </p>
-                <p className="wishlist-data"> <MaybeUrl url={row.source}/> </p>
-                <p className="wishlist-notes"> {row.owner_notes} </p>
-                {isOwner ? null : <p className="wishlist-notes"> {row.buyer_notes} </p>}
-                <div className="flex-header-footer">
-                    <EditWishlistEntryButton
-                        row={row}
-                        isOwner={isOwner}
-                        setWishlistUpToDate={setWishlistUpToDate}/>
-                    {!isOwner ? null :
-                       <DeleteWishlistEntryButton
-                           rowId={row.id}
-                           setWishlistUpToDate={setWishlistUpToDate}/>
-                    }
+                <div className="wishlist-item-hflex">
+                    <div className="wishlist-item-body">
+                        <div className="flex-header-footer">
+                            <h4 className="wishlist-item-name"> {row.description} </h4>
+                            <p className="wishlist-data"> {row.cost} </p>
+                        </div>
+                        <p className="wishlist-data"> Added {date.toDateString()} </p>
+                        <p className="wishlist-data"> <MaybeUrl url={row.source}/> </p>
+                        <p className="wishlist-notes"> {row.owner_notes} </p>
+                        {isOwner ? null : <p className="wishlist-notes"> {row.buyer_notes} </p>}
+                    </div>
+                    <div className="wishlist-item-side-buttons">
+                        <div className="wishlist-edit-button">
+                            <EditWishlistEntryButton
+                                row={row}
+                                isOwner={isOwner}
+                                setWishlistUpToDate={setWishlistUpToDate}/>
+                        </div>
+                        <div className="wishlist-edit-button">
+                            {!isOwner ? null :
+                             <DeleteWishlistEntryButton
+                                 className="wishlist-edit-button"
+                                 rowId={row.id}
+                                 setWishlistUpToDate={setWishlistUpToDate}/>
+                            }
+                        </div>
+                    </div>
                 </div>
             </div>);
 }
@@ -203,44 +179,33 @@ function WishlistItems({wishlistData, setWishlistUpToDate, loggedInUserInfo}) {
     );
 }
 
+function FormField({title, name, state, update}) {
+    return (<div className="input-pair-div">
+                {title}
+                <br/>
+                <input
+                    type="text"
+                    name={name}
+                    className="login-signup-input"
+                    value={state[name] ?? ""}
+                    onChange={(event) => update(name, event.target.value)}
+                />
+                <br/>
+            </div>)
+}
+
 function WishlistAdder({setWishlistUpToDate}) {
-    const [formState, setFormState] = useState({
-        description: '',
-        source: '',
-        cost: '',
-        owner_notes: ''
-    });
+
+    const [formState, setFormState] = useState({});
     const [postResponse, setPostResponse] = useState('');      
 
     const dialogRef = useRef(null);
-    
-    function handleDescription(event) {
-        setFormState(formState => ({
-            ...formState,
-            description: event.target.value
-        }))
-    };
 
-    function handleSource(event) {
-        setFormState(formState => ({
-            ...formState,
-            source: event.target.value
-        }))
-    };
-
-    function handleCost(event) {
-        setFormState(formState => ({
-            ...formState,
-            cost: event.target.value
-        }))
-    };
-
-    function handleOwnerNotes(event) {
-        setFormState(formState => ({
-            ...formState,
-            owner_notes: event.target.value
-        }))
-    };
+    function updateField(field, value) {
+        let copy = structuredClone(formState)
+        copy[field] = value
+        setFormState(copy)
+    }
 
     async function doPost() {
         try {
@@ -257,12 +222,7 @@ function WishlistAdder({setWishlistUpToDate}) {
             }
 
             await response.json()
-            setFormState({
-                description: '',
-                source: '',
-                cost: '',
-                owner_notes: ''
-            })
+            setFormState({})
             setWishlistUpToDate(false)
             dialogRef.current.close();
         } catch (error) {
@@ -284,43 +244,14 @@ function WishlistAdder({setWishlistUpToDate}) {
                 </button>
 
                 <h1> Add to Wishlist </h1>
-                Description <br/>
-                <input
-                    type="text"
-                    name="description"
-                    className="login-signup-input"
-                    value={formState.description}
-                    onChange={handleDescription}
-                /> <br/>
-                Source <br/>
-                <input
-                    type="text"
-                    name="source"
-                    className="login-signup-input"
-                    value={formState.source}
-                    onChange={handleSource}
-                /> <br/>
-                Cost <br/>
-                <input
-                    type="text"
-                    name="cost"
-                    className="login-signup-input"
-                    value={formState.cost}
-                    onChange={handleCost}
-                /> <br/>            
-                Notes <br/>
-                <input
-                    type="text"
-                    name="notes"
-                    className="login-signup-input"
-                    value={formState.owner_notes}
-                    onChange={handleOwnerNotes}              
-                /> <br/>
+                <FormField title="Description" name="description" state={formState} update={updateField}/>
+                <FormField title="Source" name="source" state={formState} update={updateField}/>
+                <FormField title="Cost" name="cost" state={formState} update={updateField}/>
+                <FormField title="Notes" name="owner_notes" state={formState} update={updateField}/>
                 <button onClick={doPost}>
                     Add Item
                 </button>
                 {postResponse && <p>{postResponse}</p>}
-
             </dialog>            
         </div>
     );
